@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-18T21:38:33.175Z",
+  "generatedAt": "2026-08-18T22:39:50.879Z",
   "programs": {
     "codex": {
       "name": "Codex CLI",
@@ -11,10 +11,20 @@
           "label": "Current stable",
           "channel": "stable",
           "version": "Current stable",
-          "sha256": "16a95ee999c0a3949d29208073507eece3e11bb1352b9519c0d4c370564cc808",
+          "sha256": "2063fc162e6a7ca09c4c70fd2be492a7c6ce93a82ace6204e518a08b943b955d",
           "sourceUrl": "https://learn.chatgpt.com/docs/config-schema.json",
           "assetPath": "schemas/codex/stable-current/config-schema.json",
-          "syncedAt": "2026-08-07T03:02:15.874Z"
+          "syncedAt": "2026-08-18T22:39:50.879Z"
+        },
+        {
+          "id": "rust-v0.148.0",
+          "label": "v0.148.0",
+          "channel": "archive",
+          "version": "v0.148.0",
+          "sha256": "2063fc162e6a7ca09c4c70fd2be492a7c6ce93a82ace6204e518a08b943b955d",
+          "sourceUrl": "https://github.com/openai/codex/releases/download/rust-v0.148.0/config-schema.json",
+          "assetPath": "schemas/codex/releases/rust-v0.148.0/config-schema.json",
+          "syncedAt": "2026-08-18T22:39:50.879Z"
         },
         {
           "id": "rust-v0.148.0-alpha.23",
