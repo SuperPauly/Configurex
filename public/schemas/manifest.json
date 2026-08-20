@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-20T21:08:13.776Z",
+  "generatedAt": "2026-08-20T22:06:58.730Z",
   "programs": {
     "codex": {
       "name": "Codex CLI",
@@ -11,10 +11,10 @@
           "label": "Current stable",
           "channel": "stable",
           "version": "Current stable",
-          "sha256": "2063fc162e6a7ca09c4c70fd2be492a7c6ce93a82ace6204e518a08b943b955d",
+          "sha256": "31aa306e23db882f3c9a481edc8438205a2a9a75a78f54f14dcac6c704e8e365",
           "sourceUrl": "https://learn.chatgpt.com/docs/config-schema.json",
           "assetPath": "schemas/codex/stable-current/config-schema.json",
-          "syncedAt": "2026-08-18T22:39:50.879Z"
+          "syncedAt": "2026-08-20T22:06:58.730Z"
         },
         {
           "id": "rust-v0.149.0",
