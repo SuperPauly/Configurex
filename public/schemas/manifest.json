@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-25T22:06:12.613Z",
+  "generatedAt": "2026-08-26T10:12:32.731Z",
   "programs": {
     "codex": {
       "name": "Codex CLI",
@@ -17,9 +17,19 @@
           "syncedAt": "2026-08-24T00:47:49.373Z"
         },
         {
+          "id": "rust-v0.150.0-alpha.12",
+          "label": "v0.150.0-alpha.12",
+          "channel": "alpha",
+          "version": "v0.150.0-alpha.12",
+          "sha256": "9dcc519df5eb1e8798dc5d92f6f2099851b60fce42bede19a1ff9e845141435a",
+          "sourceUrl": "https://github.com/openai/codex/releases/download/rust-v0.150.0-alpha.12/config-schema.json",
+          "assetPath": "schemas/codex/releases/rust-v0.150.0-alpha.12/config-schema.json",
+          "syncedAt": "2026-08-26T10:12:32.731Z"
+        },
+        {
           "id": "rust-v0.150.0-alpha.11",
           "label": "v0.150.0-alpha.11",
-          "channel": "alpha",
+          "channel": "archive",
           "version": "v0.150.0-alpha.11",
           "sha256": "979f1df6e88029126b510fd5dcabbf4c0804dbe6a4e6959c8d77cd8a6945e5ff",
           "sourceUrl": "https://github.com/openai/codex/releases/download/rust-v0.150.0-alpha.11/config-schema.json",
