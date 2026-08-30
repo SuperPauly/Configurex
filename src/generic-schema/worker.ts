@@ -184,7 +184,8 @@ export function preflightSchemaRequest(request: SchemaPreflightRequest): SchemaV
 }
 
 export function validateSchemaRequest(request: SchemaValidationRequest): SchemaValidationResponse {
-  const compiled = request.skipPreflight ? compileWithCache(request) : compileSchemaRequest(request);
+  // Always route through the cache: repeated validations against the same schema skip recompilation.
+  const compiled = compileWithCache(request);
   if (!compiled.valid || !compiled.validate) {
     return responseFromCompilation(compiled);
   }

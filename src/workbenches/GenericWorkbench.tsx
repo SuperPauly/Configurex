@@ -307,7 +307,7 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
   return <section aria-labelledby="generic-title" className="workbench generic-workbench">
     <div className="workbench-intro"><div><p className="eyebrow">Private, in your browser</p><h1 id="generic-title">Check your config</h1><p>Paste or open a configuration, then get clear fixes before you use it.</p></div>
       <div className="select-stack unified-selects">
-        <label>Configuration format<select aria-label="Configuration format" value={selectedFormat} onChange={(event) => { setSelectedFormat(event.target.value as SelectedFormat); }}><option value="auto">Auto detect ({format.toUpperCase()})</option><option value="json">JSON / JSON Schema</option><option value="yaml">YAML / OpenAPI</option><option value="toml">TOML</option></select></label>
+        <label>Configuration format<select aria-label="Configuration format" value={selectedFormat} onChange={(event) => { setSelectedFormat(event.target.value as SelectedFormat); }}><option value="auto">Auto detect ({format.toUpperCase()})</option><option value="json">JSON</option><option value="yaml">YAML</option><option value="toml">TOML</option></select></label>
         <label>Theme<select aria-label="Website theme" value={themeId} onChange={(event) => setEditorTheme(event.target.value as RainglowThemeId)}><optgroup label="Dark themes">{RAINGLOW_THEMES.filter((theme) => theme.variant === "dark").map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}</optgroup><optgroup label="Light themes">{RAINGLOW_THEMES.filter((theme) => theme.variant === "light").map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}</optgroup></select></label>
       </div>
     </div>

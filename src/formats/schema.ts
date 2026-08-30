@@ -72,7 +72,3 @@ export function serializeSchema(value: unknown, options: SerializeSchemaOptions)
   if (!options.engine) throw new TypeError("TOML output needs the TOML engine to be ready.");
   return FINAL_NEWLINE(options.engine.format(options.engine.encode(prepared)));
 }
-
-export function schemaFileExtension(format: SchemaFormat): string {
-  return format;
-}
