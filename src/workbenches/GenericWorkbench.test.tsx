@@ -14,7 +14,7 @@ vi.mock("@uiw/react-codemirror", async () => {
 const engine: TomlEngine = {
   validate: vi.fn(async () => ({ diagnostics: [] })),
   format: vi.fn((source: string) => `${source.trim()}\n`),
-  decode: vi.fn((source: string) => source.includes("bad") ? (() => { throw new Error("bad TOML"); })() : source.includes("max_threads") ? ({ agents: { max_threads: 8 } }) : source.includes("max_concurrent_threads_per_session") ? ({ agents: { max_concurrent_threads_per_session: 8 } }) : ({ port: 443 })),
+  decode: vi.fn((source: string) => source.includes("bad") ? (() => { throw new Error("bad TOML"); })() : source.includes("max_threads") ? ({ agents: { max_threads: 8 } }) : source.includes("max_concurrent_threads_per_session") ? ({ agents: { max_concurrent_threads_per_session: 8 } }) : source.includes("type = ") ? ({ type: "object" }) : ({ port: 443 })),
   encode: vi.fn(() => "port = 443\n"),
 };
 
@@ -48,12 +48,37 @@ describe("GenericWorkbench", () => {
     await userEvent.selectOptions(screen.getByLabelText(/configuration format/i), "json");
     const editor = screen.getByRole("textbox", { name: /json configuration editor/i });
     fireEvent.change(editor, { target: { value: '{"port":"443"}' } });
-    await userEvent.upload(screen.getByLabelText(/choose json schema file/i), new File([JSON.stringify({ $schema: "https://json-schema.org/draft/2020-12/schema", type: "object", properties: { port: { type: "integer" } } })], "config.schema.json", { type: "application/json" }));
+    await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File([JSON.stringify({ $schema: "https://json-schema.org/draft/2020-12/schema", type: "object", properties: { port: { type: "integer" } } })], "config.schema.json", { type: "application/json" }));
     await userEvent.click(screen.getByRole("button", { name: /^validate$/i }));
     const problem = await screen.findByText(/wrong value type.*expected integer/i);
     expect(problem).toBeVisible();
     await userEvent.click(problem);
     expect(screen.getByText(/replace the value with a valid integer/i)).toBeVisible();
+  });
+
+  it("loads a YAML schema file and validates against it", async () => {
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File(["type: object\nproperties:\n  port:\n    type: integer\n"], "ports.schema.yaml"));
+    expect(await screen.findByText("ports.schema.yaml")).toBeVisible();
+    await userEvent.selectOptions(screen.getByLabelText(/configuration format/i), "json");
+    fireEvent.change(screen.getByRole("textbox", { name: /json configuration editor/i }), { target: { value: '{"port":"443"}' } });
+    await userEvent.click(screen.getByRole("button", { name: /^validate$/i }));
+    expect(await screen.findByText(/wrong value type.*expected integer/i)).toBeVisible();
+  });
+
+  it("loads a TOML schema file with the TOML engine", async () => {
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File(['type = "object"\n'], "mini.schema.toml"));
+    expect(await screen.findByText("mini.schema.toml")).toBeVisible();
+    expect(engine.decode).toHaveBeenCalled();
+  });
+
+  it("accepts a pasted YAML schema", async () => {
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.click(screen.getByRole("button", { name: /paste schema/i }));
+    await userEvent.type(screen.getByLabelText(/json schema or openapi/i), "type: object");
+    await userEvent.click(screen.getByRole("button", { name: /load schema/i }));
+    expect(await screen.findByText("pasted.schema.yaml")).toBeVisible();
   });
 
   it("loads a configuration file, detects YAML, and formats it", async () => {
@@ -66,12 +91,12 @@ describe("GenericWorkbench", () => {
 
   it("supports uploaded local reference bundles and blocks them in internal mode", async () => {
     render(<GenericWorkbench engine={engine} manifest={manifest} />);
-    await userEvent.upload(screen.getByLabelText(/choose json schema file/i), new File([JSON.stringify({ $ref: "port.schema.json" })], "root.schema.json", { type: "application/json" }));
+    await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File([JSON.stringify({ $ref: "port.schema.json" })], "root.schema.json", { type: "application/json" }));
     expect(await screen.findByText(/blocked in internal only mode/i)).toBeVisible();
     await userEvent.click(screen.getByText(/^advanced$/i));
     await userEvent.upload(screen.getByLabelText(/upload schema dependencies/i), new File([JSON.stringify({ type: "object" })], "port.schema.json", { type: "application/json" }));
     fireEvent.click(screen.getByRole("radio", { name: /uploaded bundle/i }));
-    await userEvent.upload(screen.getByLabelText(/choose json schema file/i), new File([JSON.stringify({ $ref: "port.schema.json" })], "root.schema.json", { type: "application/json" }));
+    await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File([JSON.stringify({ $ref: "port.schema.json" })], "root.schema.json", { type: "application/json" }));
     await userEvent.click(screen.getByRole("button", { name: /^validate$/i }));
     await waitFor(() => expect(screen.queryByText(/blocked in internal only mode/i)).not.toBeInTheDocument());
   });
@@ -87,25 +112,32 @@ describe("GenericWorkbench", () => {
 
   it("preserves the active schema when a replacement is invalid", async () => {
     render(<GenericWorkbench engine={engine} manifest={manifest} />);
-    await userEvent.upload(screen.getByLabelText(/choose json schema file/i), new File([JSON.stringify({ type: "object" })], "mine.schema.json", { type: "application/json" }));
+    await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File([JSON.stringify({ type: "object" })], "mine.schema.json", { type: "application/json" }));
     expect(await screen.findByText("mine.schema.json")).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: /change/i }));
-    await userEvent.upload(screen.getByLabelText(/choose json schema file/i), new File([JSON.stringify({ type: 42 })], "bad.schema.json", { type: "application/json" }));
+    await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File([JSON.stringify({ type: 42 })], "bad.schema.json", { type: "application/json" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/invalid|type/i);
     await userEvent.click(screen.getByRole("button", { name: /close schema loader/i }));
     expect(screen.getByText("mine.schema.json")).toBeVisible();
   });
 
-  it("enables converted downloads only after the current revision validates", async () => {
+  it("offers downloads once a configuration parses, and blocks broken documents", async () => {
     render(<GenericWorkbench engine={engine} manifest={manifest} />);
-    await userEvent.upload(screen.getByLabelText(/choose json schema file/i), new File([JSON.stringify({ type: "object" })], "config.schema.json", { type: "application/json" }));
     await userEvent.click(screen.getByRole("button", { name: /^download$/i }));
-    expect(screen.getByRole("menuitem", { name: /json/i })).toBeDisabled();
-    await userEvent.click(screen.getByRole("button", { name: /^validate$/i }));
-    await waitFor(() => expect(screen.getByText(/valid against/i)).toBeVisible());
-    expect(screen.getByRole("menuitem", { name: /json/i })).toBeEnabled();
-    fireEvent.change(screen.getByRole("textbox", { name: /toml configuration editor/i }), { target: { value: 'model = "changed"\n' } });
-    expect(screen.getByRole("menuitem", { name: /json/i })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: /^json \.json$/i })).toBeEnabled();
+    fireEvent.change(screen.getByRole("textbox", { name: /toml configuration editor/i }), { target: { value: "" } });
+    expect(screen.getByRole("menuitem", { name: /^json \.json$/i })).toBeDisabled();
+    fireEvent.change(screen.getByRole("textbox", { name: /toml configuration editor/i }), { target: { value: "model = \"changed\"\n" } });
+    expect(screen.getByRole("menuitem", { name: /^json \.json$/i })).toBeEnabled();
+  });
+
+  it("saves the active schema as YAML, TOML, or JSON Schema and OpenAPI JSON", async () => {
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File([JSON.stringify({ $schema: "https://json-schema.org/draft/2020-12/schema", type: "object" })], "config.schema.json", { type: "application/json" }));
+    await screen.findByText("config.schema.json");
+    await userEvent.click(screen.getByRole("button", { name: /^download$/i }));
+    expect(screen.getByRole("menuitem", { name: /json schema yaml/i })).toBeEnabled();
+    expect(screen.getByRole("menuitem", { name: /json schema toml/i })).toBeEnabled();
   });
 
   it("marks removed agents.max_threads as an unknown key and updates it in one click", async () => {
@@ -133,18 +165,27 @@ describe("GenericWorkbench", () => {
     await waitFor(() => expect(screen.queryByText(/not declared by the selected schema/i)).not.toBeInTheDocument());
   });
 
-  it("reveals only the selected custom schema input and rejects non-json URLs", async () => {
+  it("reveals only the selected custom schema input and rejects unsupported URLs", async () => {
     const fetchMock = vi.mocked(fetch);
     render(<GenericWorkbench engine={engine} manifest={manifest} />);
-    expect(screen.queryByLabelText(/^json schema$/i)).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /paste json/i }));
-    expect(screen.getByLabelText(/^json schema$/i)).toBeVisible();
-    expect(screen.queryByLabelText(/https .json url/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/json schema or openapi/i)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /paste schema/i }));
+    expect(screen.getByLabelText(/json schema or openapi/i)).toBeVisible();
+    expect(screen.queryByLabelText(/https schema url/i)).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /fetch url/i }));
-    await userEvent.type(screen.getByLabelText(/https .json url/i), "https://example.test/schema.txt");
+    await userEvent.type(screen.getByLabelText(/https schema url/i), "https://example.test/schema.txt");
     await userEvent.click(screen.getByRole("button", { name: /fetch schema/i }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(/ends in .json/i);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/ends in \.json/i);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fetches a YAML schema over HTTPS", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("type: object\n", { status: 200 })));
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.click(screen.getByRole("button", { name: /fetch url/i }));
+    await userEvent.type(screen.getByLabelText(/https schema url/i), "https://example.test/api.yaml");
+    await userEvent.click(screen.getByRole("button", { name: /fetch schema/i }));
+    expect(await screen.findByText("api.yaml")).toBeVisible();
   });
 
   it("accepts a dropped schema file and a clipboard-pasted schema file", async () => {

@@ -154,12 +154,37 @@ function responseFromCompilation(compiled: ReturnType<typeof compileSchemaReques
   };
 }
 
+let cachedCompilation: {
+  readonly primary: unknown;
+  readonly dependencies: readonly unknown[];
+  readonly referenceMode: string;
+  readonly compiled: ReturnType<typeof compileSchemaRequest>;
+} | undefined;
+
+function sameCompilation(request: CompileRequest): boolean {
+  const cached = cachedCompilation;
+  return Boolean(
+    cached
+    && cached.referenceMode === request.referenceMode
+    && cached.primary === request.primary.schema
+    && cached.dependencies.length === request.dependencies.length
+    && cached.dependencies.every((schema, index) => schema === request.dependencies[index]?.schema),
+  );
+}
+
+function compileWithCache(request: CompileRequest): ReturnType<typeof compileSchemaRequest> {
+  if (sameCompilation(request)) return cachedCompilation!.compiled;
+  const compiled = compileSchemaRequest(request);
+  cachedCompilation = { primary: request.primary.schema, dependencies: request.dependencies.map((dependency) => dependency.schema), referenceMode: request.referenceMode, compiled };
+  return compiled;
+}
+
 export function preflightSchemaRequest(request: SchemaPreflightRequest): SchemaValidationResponse {
-  return responseFromCompilation(compileSchemaRequest(request));
+  return responseFromCompilation(compileWithCache(request));
 }
 
 export function validateSchemaRequest(request: SchemaValidationRequest): SchemaValidationResponse {
-  const compiled = compileSchemaRequest(request);
+  const compiled = request.skipPreflight ? compileWithCache(request) : compileSchemaRequest(request);
   if (!compiled.valid || !compiled.validate) {
     return responseFromCompilation(compiled);
   }

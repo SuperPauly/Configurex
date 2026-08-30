@@ -650,6 +650,18 @@ h1 {
 .download-menu button:disabled { cursor: not-allowed; opacity: .42; }
 .download-menu small { color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; }
 
+.download-menu-label {
+  padding: 6px 10px 2px;
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.download-menu-label + .download-menu-label,
+.download-menu button + .download-menu-label { margin-top: 4px; border-top: 1px solid var(--border); }
+
 .modal-backdrop {
   position: fixed;
   z-index: 300;
@@ -866,7 +878,7 @@ h1 {
 
   .action-bar {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 7px;
   }
 
@@ -900,18 +912,17 @@ h1 {
   .analytics-consent-actions .button { flex: 1; }
   .download-control { min-width: 0; }
   .download-control > .button { width: 100%; }
-  .download-menu { right: auto; left: 0; }
   .version-modal { padding: 16px; }
 }
 
 @media (max-width: 390px) {
-  .theme-control button span,
-  .button svg { display: none; }
+  .theme-control button span { display: none; }
   .schema-option { align-items: flex-start; }
   .select-stack { grid-template-columns: 1fr; }
   .latest-version-actions { grid-template-columns: 1fr; }
   .mode-tabs span { display: none; }
   .rule-examples { grid-template-columns: 1fr; }
+  .action-bar .button { padding: 0 4px; font-size: 0.72rem; }
 }
 
 /* Friendly progressive schema loader */
@@ -977,7 +988,7 @@ body.editor-is-expanded { overflow: hidden; }
 
 @media (max-width: 760px) {
   .editor-frame { height: 70svh; min-height: 520px; max-height: 760px; }
-  .editor-toolbar strong { display: none; }
+  .editor-toolbar strong { max-width: 34vw; }
   .editor-toolbar .button { min-height: 40px; padding: 0 10px; }
   .schema-source-row, .schema-url-input > div { align-items: stretch; flex-direction: column; }
   .schema-source-row label { flex: 0 0 auto; }
@@ -985,6 +996,7 @@ body.editor-is-expanded { overflow: hidden; }
   .schema-input-reveal > .button, .schema-url-input .button { width: 100%; }
   .schema-summary em { display: none; }
   .problem-detail { margin-left: 0; }
+  .download-menu { right: 0; left: auto; bottom: calc(100% + 7px); max-height: 62svh; max-width: calc(100vw - 28px); overflow: auto; }
 }
 
 @media (max-width: 390px) {
