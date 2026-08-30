@@ -6,10 +6,10 @@ async function workflow(name) {
   return await readFile(new URL(`../.github/workflows/${name}`, import.meta.url), "utf8");
 }
 
-test("schema synchronization runs every 30 minutes and can commit both channels", async () => {
+test("schema synchronization runs every 6 hours and can commit both channels", async () => {
   const yaml = await workflow("sync-schemas.yml");
 
-  assert.match(yaml, /cron:\s*["']\*\/30 \* \* \* \*["']/);
+  assert.match(yaml, /cron:\s*["']0 \*\/6 \* \* \*["']/);
   assert.match(yaml, /workflow_dispatch:/);
   assert.match(yaml, /contents:\s*write/);
   assert.match(yaml, /npm run test:scripts/);
