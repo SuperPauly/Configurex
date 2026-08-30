@@ -2,7 +2,7 @@ name: Sync Codex schemas
 
 on:
   schedule:
-    - cron: "* */6 * * *"
+    - cron: "0 */6 * * *"
   push:
     branches: [main]
     paths:
