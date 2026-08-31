@@ -36,6 +36,8 @@ export interface SchemaValidationRequest {
   readonly primary: LocalSchemaFile;
   readonly dependencies: readonly LocalSchemaFile[];
   readonly referenceMode: ReferenceMode;
+  /** When true, the worker may reuse the cached compilation for an identical schema set. */
+  readonly skipPreflight?: boolean;
 }
 
 export interface SchemaPreflightRequest {

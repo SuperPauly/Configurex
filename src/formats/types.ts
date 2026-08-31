@@ -2,6 +2,9 @@ import type { Diagnostic, SourceRange } from "../diagnostics/types";
 
 export type ConfigFormat = "json" | "yaml" | "toml";
 
+/** Serialization formats a schema document can be loaded from or saved as. */
+export type SchemaFormat = "json" | "yaml" | "toml";
+
 export interface ParsedDocument {
   readonly value?: unknown;
   readonly diagnostics: readonly Diagnostic[];

@@ -8,6 +8,11 @@ describe("detectFormat", () => {
     expect(detectFormat("CONFIG.JSON", "name: Paul\n").format).toBe("json");
   });
 
+  it("recognizes schema-style filenames with compound extensions", () => {
+    expect(detectFormat("config.schema.json", "{}").format).toBe("json");
+    expect(detectFormat("openapi.yaml", "openapi: 3.1.0\n").format).toBe("yaml");
+  });
+
   it("recognizes pasted JSON, YAML, and TOML conservatively", () => {
     expect(detectFormat(undefined, '{"name":"Paul"}')).toEqual({ format: "json", confidence: "content", ambiguous: false });
     expect(detectFormat(undefined, "name: Paul\n").format).toBe("yaml");

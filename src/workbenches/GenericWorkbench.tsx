@@ -10,11 +10,12 @@ import { diagnosticCountSummary } from "../diagnostics/summary";
 import type { Diagnostic } from "../diagnostics/types";
 import { ConfigEditor } from "../editor/ConfigEditor";
 import { loadEditorTheme, RAINGLOW_THEMES, saveEditorTheme, type RainglowThemeId } from "../editor/rainglow";
-import { detectFormat } from "../formats/detect";
+import { detectFormat, detectSchemaFormat } from "../formats/detect";
 import { JsonAdapter } from "../formats/json";
+import { isYamlDocument, parseSchemaText, serializeSchema } from "../formats/schema";
 import { serializeConfig } from "../formats/serialize";
 import { TomlAdapter } from "../formats/toml";
-import type { ConfigFormat, FormatAdapter, FormatOptions } from "../formats/types";
+import type { ConfigFormat, FormatAdapter, FormatOptions, SchemaFormat } from "../formats/types";
 import { YamlAdapter } from "../formats/yaml";
 import { SchemaWorkerClient } from "../generic-schema/client";
 import { schemaPropertyNames, translateSchemaProblem } from "../generic-schema/diagnostics";
@@ -59,14 +60,15 @@ function inProcessClient(): SchemaClient {
 
 function validSchemaUrl(value: string): URL {
   let url: URL;
-  try { url = new URL(value); } catch { throw new Error("Enter a complete HTTPS URL ending in .json."); }
-  if (url.protocol !== "https:" || !url.pathname.toLowerCase().endsWith(".json")) throw new Error("Use an HTTPS URL whose path ends in .json.");
+  try { url = new URL(value); } catch { throw new Error("Enter a complete HTTPS URL ending in .json, .yaml, .yml, or .toml."); }
+  if (url.protocol !== "https:" || !/\.(json|ya?ml|toml)$/i.test(url.pathname)) throw new Error("Use an HTTPS URL whose path ends in .json, .yaml, .yml, or .toml.");
   return url;
 }
 
 function createSchemaClient(): SchemaClient { return typeof Worker === "undefined" ? inProcessClient() : new SchemaWorkerClient(); }
 function extension(format: ConfigFormat): string { return format === "yaml" ? "yaml" : format; }
 function mimeType(format: ConfigFormat): string { return format === "json" ? "application/json" : format === "yaml" ? "application/yaml" : "application/toml"; }
+function schemaOutputName(target: SchemaFormat, kind: "jsonschema" | "openapi"): string { return `${kind === "openapi" ? "openapi" : "schema"}.${extension(target)}`; }
 
 export interface GenericWorkbenchProps {
   readonly engine: TomlEngine;
@@ -106,17 +108,21 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
   const [lintSettings, setLintSettings] = useState<LintSettings>(() => loadLintSettings());
   const [status, setStatus] = useState<Status>({ type: "idle", message: "Choose or add a JSON Schema to begin." });
   const [revision, setRevision] = useState(0);
-  const [validatedRevision, setValidatedRevision] = useState<number | undefined>();
   const sourceRef = useRef(source);
   const revisionRef = useRef(0);
   const editorRef = useRef<EditorView | null>(null);
   const sequence = useRef(0);
   const schemaLoadSequence = useRef(0);
+  const compiledSchema = useRef<{ primary: LocalSchemaFile; dependencies: readonly LocalSchemaFile[]; referenceMode: ReferenceMode } | undefined>(undefined);
   const [schemaClient] = useState<SchemaClient>(() => createSchemaClient());
 
-  const detected = detectFormat(fileName, source);
+  const detected = useMemo(() => detectFormat(fileName, source), [fileName, source]);
   const format: ConfigFormat = selectedFormat === "auto" ? detected.format ?? program?.defaultFormat ?? "toml" : selectedFormat;
   const primary = customPrimary ?? trackedPrimary;
+  const schemaKind: "jsonschema" | "openapi" = useMemo(() => {
+    const kind = detectSchemaFormat(customPrimary?.fileName, primary?.schema).schemaKind;
+    return kind === "openapi" ? "openapi" : "jsonschema";
+  }, [customPrimary?.fileName, primary?.schema]);
   const adapters = useMemo<Record<ConfigFormat, FormatAdapter>>(() => ({ json: new JsonAdapter(), yaml: new YamlAdapter(), toml: new TomlAdapter(engine) }), [engine]);
 
   useEffect(() => () => schemaClient.dispose(), [schemaClient]);
@@ -135,6 +141,7 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
       const checked = await schemaClient.preflight({ primary: candidate, dependencies: [], referenceMode: "internal" });
       if (!checked.valid) throw new Error(checked.problems[0]?.message ?? "The selected schema is invalid.");
       if (run !== schemaLoadSequence.current) return;
+      compiledSchema.current = { primary: candidate, dependencies: [], referenceMode: "internal" };
       setTrackedPrimary(candidate);
       setLoaderOpen(false);
       setStatus({ type: "idle", message: `${selectedVersion.label} loaded. Press Validate to check this configuration.` });
@@ -145,14 +152,12 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
   }, [programId, schemaClient, selectedVersion]);
 
   const setEditorTheme = (next: RainglowThemeId) => { saveEditorTheme(next); if (onThemeChange) onThemeChange(next); else setLocalThemeId(next); };
-  const updateLintSettings = (next: LintSettings) => { setLintSettings(next); saveLintSettings(next); setValidatedRevision(undefined); };
-  const updateSource = (next: string) => { sourceRef.current = next; revisionRef.current += 1; setRevision(revisionRef.current); setSource(next); setValidatedRevision(undefined); setStatus({ type: "idle", message: "Edited. Checking when you pause." }); };
+  const updateLintSettings = (next: LintSettings) => { setLintSettings(next); saveLintSettings(next); };
+  const updateSource = (next: string) => { sourceRef.current = next; revisionRef.current += 1; setRevision(revisionRef.current); setSource(next); setStatus({ type: "idle", message: "Edited. Checking when you pause." }); };
 
   const validate = useCallback(async () => {
     const run = ++sequence.current;
-    const revision = revisionRef.current;
     schemaClient.cancel();
-    setValidatedRevision(undefined);
     setStatus({ type: "working", message: `Checking ${format.toUpperCase()} syntax and lint rules...` });
     const parsed = adapters[format].parse(sourceRef.current);
     const migrations = programId === "codex" && !customPrimary && parsed.value !== undefined ? codexMigrationDiagnostics(sourceRef.current, format, parsed.value) : [];
@@ -170,7 +175,11 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
       return;
     }
     setStatus({ type: "working", message: `Validating configuration against ${primary.fileName}...` });
-    const response = await schemaClient.validate({ value: parsed.value, primary, dependencies, referenceMode });
+    const cached = compiledSchema.current;
+    const reuseCompiled = cached && cached.primary === primary && cached.referenceMode === referenceMode
+      && cached.dependencies.length === dependencies.length && cached.dependencies.every((file, index) => file === dependencies[index]);
+    const response = await schemaClient.validate({ value: parsed.value, primary, dependencies, referenceMode, ...(reuseCompiled ? { skipPreflight: true } : {}) });
+    if (!reuseCompiled) compiledSchema.current = { primary, dependencies, referenceMode };
     if (run !== sequence.current) return;
     const migrationPaths = new Set(migrations.flatMap((diagnostic) => diagnostic.dataPath === undefined ? [] : [diagnostic.dataPath]));
     const knownPropertyNames = schemaPropertyNames(primary.schema);
@@ -181,13 +190,12 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
     const next = [...base, ...schemaDiagnostics, ...notices].sort((left, right) => left.from - right.from || left.severity.localeCompare(right.severity));
     setDiagnostics(next);
     const errors = next.filter((item) => item.severity === "error").length;
-    if (!errors && revision === revisionRef.current) setValidatedRevision(revision);
     setStatus({ type: errors ? "invalid" : "valid", message: errors ? `${diagnosticCountSummary(next)} found.` : `Valid against ${customPrimary?.fileName ?? selectedVersion?.label ?? primary.fileName}${next.length ? ` with ${diagnosticCountSummary(next)}` : ""}.` });
   }, [adapters, customPrimary, dependencies, format, lintSettings, primary, programId, referenceMode, schemaClient, selectedVersion?.label]);
 
   useEffect(() => {
     if (!revision) return;
-    const timer = window.setTimeout(() => void validate(), 650);
+    const timer = window.setTimeout(() => void validate(), 450);
     return () => window.clearTimeout(timer);
   }, [revision, validate]);
 
@@ -208,9 +216,9 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
   };
 
   const parseSchemaFile = async (file: File): Promise<LocalSchemaFile> => {
-    if (!file.name.toLowerCase().endsWith(".json")) throw new Error("JSON Schema files must use the .json extension.");
+    if (!/\.(json|ya?ml|toml)$/i.test(file.name)) throw new Error("Schema files must use the .json, .yaml, .yml, or .toml extension.");
     const raw = await readFile(file);
-    try { return { fileName: file.name, schema: JSON.parse(raw) as unknown }; } catch (cause) { throw new Error(`${file.name} is not valid JSON: ${cause instanceof Error ? cause.message : String(cause)}`, { cause }); }
+    try { return { fileName: file.name, schema: parseSchemaText(raw, file.name, engine) }; } catch (cause) { throw new Error(`${file.name} is not valid: ${cause instanceof Error ? cause.message : String(cause)}`, { cause }); }
   };
   const activateCustomSchema = async (candidate: LocalSchemaFile) => {
     setSchemaBusy(true);
@@ -219,10 +227,11 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
       const checked = await schemaClient.preflight({ primary: candidate, dependencies, referenceMode });
       if (!checked.valid) throw new Error(checked.problems[0]?.message ?? "This is not a valid JSON Schema.");
       schemaLoadSequence.current += 1;
+      compiledSchema.current = { primary: candidate, dependencies, referenceMode };
       setProgramId("none");
       setTrackedPrimary(undefined);
       setCustomPrimary(candidate);
-      setValidatedRevision(undefined);
+     
       setLoaderOpen(false);
       setSchemaFeedback("");
       setStatus({ type: "idle", message: `${candidate.fileName} is ready.` });
@@ -236,8 +245,10 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
     catch (cause) { setSchemaFeedback(cause instanceof Error ? cause.message : String(cause)); }
   };
   const loadPastedSchema = async () => {
-    try { await activateCustomSchema({ fileName: "pasted.schema.json", schema: JSON.parse(schemaDraft) as unknown }); }
-    catch (cause) { setSchemaFeedback(`Invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`); }
+    const trimmed = schemaDraft.trim();
+    const yamlSource = isYamlDocument(trimmed) && !trimmed.startsWith("{") && !trimmed.startsWith("[");
+    try { await activateCustomSchema({ fileName: yamlSource ? "pasted.schema.yaml" : "pasted.schema.json", schema: parseSchemaText(trimmed, undefined, engine) }); }
+    catch (cause) { setSchemaFeedback(`Invalid schema text: ${cause instanceof Error ? cause.message : String(cause)}`); }
   };
   const fetchSchema = async () => {
     setSchemaBusy(true);
@@ -246,9 +257,9 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
       const url = validSchemaUrl(schemaUrl.trim());
       const response = await fetch(url, { cache: "no-cache" });
       if (!response.ok) throw new Error(`Schema returned HTTP ${response.status}.`);
-      validSchemaUrl(response.url || url.href);
+      const finalUrl = validSchemaUrl(response.url || url.href);
       const text = await response.text();
-      await activateCustomSchema({ fileName: url.pathname.split("/").at(-1) ?? "schema.json", schema: JSON.parse(text) as unknown });
+      await activateCustomSchema({ fileName: finalUrl.pathname.split("/").at(-1) ?? "schema.json", schema: parseSchemaText(text, finalUrl.pathname, engine) });
     } catch (cause) { setSchemaFeedback(cause instanceof Error ? cause.message : String(cause)); setSchemaBusy(false); }
   };
   const receiveSchemaFile = (event: DragEvent<HTMLElement> | ClipboardEvent<HTMLElement>) => {
@@ -259,20 +270,29 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
   };
   const uploadDependencies = async (files: FileList | null) => {
     if (!files?.length) return;
-    try { const incoming = [...files]; if (incoming.length > MAX_SCHEMA_FILES || incoming.reduce((sum, file) => sum + file.size, 0) > MAX_SCHEMA_BUNDLE_BYTES) throw new Error("A local schema bundle can contain up to 50 JSON files and 10 MiB total."); const parsed = await Promise.all(incoming.map(parseSchemaFile)); setDependencies(parsed); setValidatedRevision(undefined); setStatus({ type: "idle", message: `${parsed.length} local schema ${parsed.length === 1 ? "dependency" : "dependencies"} loaded.` }); }
+    try { const incoming = [...files]; if (incoming.length > MAX_SCHEMA_FILES || incoming.reduce((sum, file) => sum + file.size, 0) > MAX_SCHEMA_BUNDLE_BYTES) throw new Error("A local schema bundle can contain up to 50 files and 10 MiB total."); const parsed = await Promise.all(incoming.map(parseSchemaFile)); setDependencies(parsed); compiledSchema.current = undefined; setStatus({ type: "idle", message: `${parsed.length} local schema ${parsed.length === 1 ? "dependency" : "dependencies"} loaded.` }); }
     catch (cause) { setStatus({ type: "error", message: cause instanceof Error ? cause.message : String(cause) }); }
   };
 
   const formatSource = async () => { try { const formatted = await adapters[format].formatSource(sourceRef.current, FORMAT_OPTIONS); updateSource(formatted); await validate(); } catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setDiagnostics([documentLevelDiagnostic(sourceRef.current, "error", "format", "format/failed", message, `The ${format.toUpperCase()} formatter could not format this document because its current structure is invalid.`, `Correct the ${format.toUpperCase()} syntax error, then run Format again.`)]); setStatus({ type: "error", message }); } };
   const visit = (diagnostic: Diagnostic) => { const editor = editorRef.current; if (!editor) return; const from = Math.min(diagnostic.from, editor.state.doc.length); const to = Math.min(Math.max(from, diagnostic.to), editor.state.doc.length); editor.dispatch({ selection: EditorSelection.range(from, to), effects: EditorView.scrollIntoView(from, { y: "center" }) }); editor.focus(); };
   const copy = async () => { try { await navigator.clipboard.writeText(sourceRef.current); setStatus({ type: "idle", message: "Configuration copied to the clipboard." }); } catch { setStatus({ type: "error", message: "Clipboard access was not available." }); } };
+  const saveBlob = (text: string, mime: string, name: string) => {
+    const url = URL.createObjectURL(new Blob([text], { type: mime }));
+    const anchor = document.createElement("a"); anchor.href = url; anchor.download = name; anchor.click(); URL.revokeObjectURL(url);
+    setDownloadMenuOpen(false);
+  };
   const download = (target: ConfigFormat) => {
     try {
       const parsed = adapters[format].parse(sourceRef.current);
-      if (parsed.value === undefined || parsed.diagnostics.some((item) => item.severity === "error")) throw new Error("Validate the current configuration before downloading it.");
-      const text = serializeConfig(parsed.value, target, engine);
-      const url = URL.createObjectURL(new Blob([text], { type: mimeType(target) }));
-      const anchor = document.createElement("a"); anchor.href = url; anchor.download = `${program?.outputBaseName ?? "config"}.${extension(target)}`; anchor.click(); URL.revokeObjectURL(url); setDownloadMenuOpen(false);
+      if (parsed.value === undefined || parsed.diagnostics.some((item) => item.severity === "error")) throw new Error("Fix the syntax errors in the current configuration before downloading it.");
+      saveBlob(serializeConfig(parsed.value, target, engine), mimeType(target), `${program?.outputBaseName ?? "config"}.${extension(target)}`);
+    } catch (cause) { setStatus({ type: "error", message: cause instanceof Error ? cause.message : String(cause) }); }
+  };
+  const downloadSchema = (target: SchemaFormat) => {
+    try {
+      if (!primary) throw new Error("Load a schema before saving it.");
+      saveBlob(serializeSchema(primary.schema, { format: target, engine }), mimeType(target), schemaOutputName(target, schemaKind));
     } catch (cause) { setStatus({ type: "error", message: cause instanceof Error ? cause.message : String(cause) }); }
   };
   const applyFix = (diagnostic: Diagnostic) => {
@@ -281,12 +301,13 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
     updateSource(next);
     void validate();
   };
-  const canDownload = validatedRevision === revision && status.type === "valid";
+  const canDownload = source.trim().length > 0;
+  const canDownloadSchema = primary !== undefined;
 
   return <section aria-labelledby="generic-title" className="workbench generic-workbench">
     <div className="workbench-intro"><div><p className="eyebrow">Private, in your browser</p><h1 id="generic-title">Check your config</h1><p>Paste or open a configuration, then get clear fixes before you use it.</p></div>
       <div className="select-stack unified-selects">
-        <label>Configuration format<select aria-label="Configuration format" value={selectedFormat} onChange={(event) => { setSelectedFormat(event.target.value as SelectedFormat); setValidatedRevision(undefined); }}><option value="auto">Auto detect ({format.toUpperCase()})</option><option value="json">JSON</option><option value="yaml">YAML</option><option value="toml">TOML</option></select></label>
+        <label>Configuration format<select aria-label="Configuration format" value={selectedFormat} onChange={(event) => { setSelectedFormat(event.target.value as SelectedFormat); }}><option value="auto">Auto detect ({format.toUpperCase()})</option><option value="json">JSON</option><option value="yaml">YAML</option><option value="toml">TOML</option></select></label>
         <label>Theme<select aria-label="Website theme" value={themeId} onChange={(event) => setEditorTheme(event.target.value as RainglowThemeId)}><optgroup label="Dark themes">{RAINGLOW_THEMES.filter((theme) => theme.variant === "dark").map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}</optgroup><optgroup label="Light themes">{RAINGLOW_THEMES.filter((theme) => theme.variant === "light").map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}</optgroup></select></label>
       </div>
     </div>
@@ -297,33 +318,38 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
         <div className="schema-source-row">
           <label>Source<select aria-label="Schema source" value={programId} onChange={(event) => {
             const id = event.target.value;
-            setProgramId(id); setCustomPrimary(undefined); setDependencies([]); setTrackedPrimary(undefined); setSchemaFeedback(""); setValidatedRevision(undefined);
-            if (id === "none") { schemaLoadSequence.current += 1; setStatus({ type: "idle", message: "Add your JSON Schema below." }); return; }
+            setProgramId(id); setCustomPrimary(undefined); setDependencies([]); setTrackedPrimary(undefined); setSchemaFeedback("");
+            if (id === "none") { schemaLoadSequence.current += 1; compiledSchema.current = undefined; setStatus({ type: "idle", message: "Add your JSON Schema below." }); return; }
             const next = manifest.programs[id]; if (!next) return;
             const version = next.versions.find((item) => item.channel === "stable") ?? next.versions[0];
             setSelectedVersionId(version?.id ?? ""); setSelectedFormat(next.defaultFormat); setStatus({ type: "working", message: `Loading ${next.name} schema...` });
-          }}><option value="none">None — use my own</option>{programIds.map((id) => <option key={id} value={id}>{manifest.programs[id]?.name}</option>)}</select></label>
+          }}><option value="none">None — use my own (JSON, YAML, TOML, OpenAPI)</option>{programIds.map((id) => <option key={id} value={id}>{manifest.programs[id]?.name}</option>)}</select></label>
           {program ? <label>Version<select aria-label="Schema version" value={selectedVersionId} onChange={(event) => { setTrackedPrimary(undefined); setSelectedVersionId(event.target.value); setStatus({ type: "working", message: "Loading schema..." }); }}>
             {program.versions.map((version) => <option key={version.id} value={version.id}>{version.label}</option>)}
           </select></label> : null}
         </div>
         {programId === "none" ? <div className="custom-schema-controls">
           <div className="schema-choice-buttons">
-            <button aria-pressed={loaderAction === "paste"} className="button button-secondary" onClick={() => setLoaderAction(loaderAction === "paste" ? "none" : "paste")} type="button"><FileJson aria-hidden="true" size={17} /> Paste JSON</button>
+            <button aria-pressed={loaderAction === "paste"} className="button button-secondary" onClick={() => setLoaderAction(loaderAction === "paste" ? "none" : "paste")} type="button"><FileJson aria-hidden="true" size={17} /> Paste schema</button>
             <button aria-pressed={loaderAction === "url"} className="button button-secondary" onClick={() => setLoaderAction(loaderAction === "url" ? "none" : "url")} type="button"><Link2 aria-hidden="true" size={17} /> Fetch URL</button>
-            <label className="button button-secondary"><FileUp aria-hidden="true" size={17} /> Choose file<input accept=".json,application/json" aria-label="Choose JSON Schema file" className="visually-hidden" onChange={(event) => { void uploadPrimary(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} type="file" /></label>
+            <label className="button button-secondary"><FileUp aria-hidden="true" size={17} /> Choose file<input accept=".json,.yaml,.yml,.toml,application/json,application/yaml" aria-label="Choose schema file (JSON, YAML, or TOML)" className="visually-hidden" onChange={(event) => { void uploadPrimary(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} type="file" /></label>
           </div>
-          {loaderAction === "paste" ? <div className="schema-input-reveal"><label htmlFor="schema-json">JSON Schema</label><textarea id="schema-json" onChange={(event) => setSchemaDraft(event.target.value)} placeholder={'{\n  "$schema": "https://json-schema.org/draft/2020-12/schema"\n}'} rows={6} value={schemaDraft} /><button className="button button-primary" disabled={!schemaDraft.trim() || schemaBusy} onClick={() => void loadPastedSchema()} type="button">{schemaBusy ? "Checking..." : "Load schema"}</button></div> : null}
-          {loaderAction === "url" ? <div className="schema-input-reveal schema-url-input"><label htmlFor="schema-url">HTTPS .json URL</label><div><input id="schema-url" inputMode="url" onChange={(event) => setSchemaUrl(event.target.value)} placeholder="https://example.com/schema.json" type="url" value={schemaUrl} /><button className="button button-primary" disabled={!schemaUrl.trim() || schemaBusy} onClick={() => void fetchSchema()} type="button">{schemaBusy ? "Fetching..." : "Fetch schema"}</button></div></div> : null}
-          <p className="drop-hint">You can also drop a .json file here, or paste a copied file.</p>
+          {loaderAction === "paste" ? <div className="schema-input-reveal"><label htmlFor="schema-json">JSON Schema or OpenAPI (JSON or YAML)</label><textarea id="schema-json" onChange={(event) => setSchemaDraft(event.target.value)} placeholder={'$schema: https://json-schema.org/draft/2020-12/schema\ntype: object\n# — or paste JSON, including an OpenAPI document'} rows={6} value={schemaDraft} /><button className="button button-primary" disabled={!schemaDraft.trim() || schemaBusy} onClick={() => void loadPastedSchema()} type="button">{schemaBusy ? "Checking..." : "Load schema"}</button></div> : null}
+          {loaderAction === "url" ? <div className="schema-input-reveal schema-url-input"><label htmlFor="schema-url">HTTPS schema URL (.json, .yaml, .yml, .toml)</label><div><input id="schema-url" inputMode="url" onChange={(event) => setSchemaUrl(event.target.value)} placeholder="https://example.com/schema.yaml" type="url" value={schemaUrl} /><button className="button button-primary" disabled={!schemaUrl.trim() || schemaBusy} onClick={() => void fetchSchema()} type="button">{schemaBusy ? "Fetching..." : "Fetch schema"}</button></div></div> : null}
+          <p className="drop-hint">You can also drop a .json, .yaml, .yml, or .toml schema file here, or paste a copied file.</p>
           {schemaFeedback ? <p className="schema-feedback" role="alert"><TriangleAlert aria-hidden="true" size={16} />{schemaFeedback}</p> : null}
-          <details className="schema-advanced"><summary>Advanced</summary><div className="schema-upload"><span>Local references</span><label className="button button-secondary"><FileUp aria-hidden="true" size={17} /> {dependencies.length ? `${dependencies.length} loaded` : "Choose dependencies"}<input accept=".json,application/json" aria-label="Upload schema dependencies" className="visually-hidden" multiple onChange={(event) => { void uploadDependencies(event.currentTarget.files); event.currentTarget.value = ""; }} type="file" /></label></div><fieldset className="reference-mode"><legend>$ref policy</legend><label><input checked={referenceMode === "internal"} name="reference-mode" onChange={() => { setReferenceMode("internal"); setValidatedRevision(undefined); }} type="radio" /> Internal only</label><label><input checked={referenceMode === "bundle"} name="reference-mode" onChange={() => { setReferenceMode("bundle"); setValidatedRevision(undefined); }} type="radio" /> Uploaded bundle</label></fieldset></details>
+          <details className="schema-advanced"><summary>Advanced</summary><div className="schema-upload"><span>Local references</span><label className="button button-secondary"><FileUp aria-hidden="true" size={17} /> {dependencies.length ? `${dependencies.length} loaded` : "Choose dependencies"}<input accept=".json,.yaml,.yml,.toml,application/json,application/yaml" aria-label="Upload schema dependencies" className="visually-hidden" multiple onChange={(event) => { void uploadDependencies(event.currentTarget.files); event.currentTarget.value = ""; }} type="file" /></label></div><fieldset className="reference-mode"><legend>$ref policy</legend><label><input checked={referenceMode === "internal"} name="reference-mode" onChange={() => { setReferenceMode("internal"); compiledSchema.current = undefined; }} type="radio" /> Internal only</label><label><input checked={referenceMode === "bundle"} name="reference-mode" onChange={() => { setReferenceMode("bundle"); compiledSchema.current = undefined; }} type="radio" /> Uploaded bundle</label></fieldset></details>
         </div> : null}
       </>}
     </section>
 
     <div aria-label="Configuration actions" className="action-bar"><label className="button button-secondary"><FileUp aria-hidden="true" size={17} /> Upload config<input accept=".json,.yaml,.yml,.toml" aria-label="Upload configuration" className="visually-hidden" onChange={(event) => { void uploadConfig(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} type="file" /></label><LintSettingsDrawer onChange={updateLintSettings} settings={lintSettings} /><span className="action-spacer" /><button className="button button-quiet" onClick={() => void copy()} type="button"><Clipboard aria-hidden="true" size={17} /> Copy</button>
-      <div className="download-control"><button aria-expanded={downloadMenuOpen} className="button button-quiet" onClick={() => setDownloadMenuOpen((open) => !open)} type="button"><Download aria-hidden="true" size={17} /> Download <ChevronDown aria-hidden="true" size={15} /></button>{downloadMenuOpen ? <div aria-label="Download format" className="download-menu" role="menu">{(["json", "yaml", "toml"] as const).map((target) => <button disabled={!canDownload} key={target} onClick={() => download(target)} role="menuitem" type="button">{target.toUpperCase()} <small>.{extension(target)}</small></button>)}</div> : null}</div>
+      <div className="download-control"><button aria-expanded={downloadMenuOpen} className="button button-quiet" onClick={() => setDownloadMenuOpen((open) => !open)} type="button"><Download aria-hidden="true" size={17} /> Download <ChevronDown aria-hidden="true" size={15} /></button>{downloadMenuOpen ? <div aria-label="Download format" className="download-menu" role="menu">
+        <div className="download-menu-label">Configuration</div>
+        {(["json", "yaml", "toml"] as const).map((target) => <button disabled={!canDownload} key={target} onClick={() => download(target)} role="menuitem" type="button">{target.toUpperCase()} <small>.{extension(target)}</small></button>)}
+        <div className="download-menu-label">Schema</div>
+        {(["json", "yaml", "toml"] as const).map((target) => <button disabled={!canDownloadSchema} key={target} onClick={() => downloadSchema(target)} role="menuitem" type="button">{schemaKind === "openapi" ? `OpenAPI ${target.toUpperCase()}` : `JSON Schema ${target.toUpperCase()}`} <small>.{extension(target)}</small></button>)}
+      </div> : null}</div>
       <button className="button button-danger" onClick={() => { sequence.current += 1; updateSource(""); setDiagnostics([]); }} type="button"><Trash2 aria-hidden="true" size={17} /> Clear</button>
     </div>
     <div className={`editor-shell${editorExpanded ? " is-expanded" : ""}`}><div className="editor-toolbar"><strong>{fileName ?? `Untitled.${extension(format)}`}</strong><span /><button className="button button-primary" onClick={() => void validate()} type="button"><Play aria-hidden="true" size={16} /> Validate</button><button className="button button-secondary" onClick={() => void formatSource()} type="button"><Paintbrush aria-hidden="true" size={16} /> Format</button><button className="button button-secondary" onClick={() => setEditorExpanded((value) => !value)} type="button">{editorExpanded ? <Minimize2 aria-hidden="true" size={16} /> : <Maximize2 aria-hidden="true" size={16} />}{editorExpanded ? "Done" : "Expand editor"}</button></div><div className="editor-frame"><ConfigEditor ariaLabel={`${format.toUpperCase()} configuration editor`} diagnostics={diagnostics} language={format} onChange={updateSource} onCreateEditor={(view) => { editorRef.current = view; }} onValidationTrigger={() => void validate()} themeId={themeId} value={source} /></div></div>

@@ -15,8 +15,23 @@ export interface ValidatorWorkbenchProps {
 
 export const DEFAULT_GA_MEASUREMENT_ID = "G-CET6VNKSBL";
 
+const initialThemeId = loadEditorTheme();
+// Paint with the saved palette before the first frame so the UI never flashes.
+applyRainglowTheme(initialThemeId);
+
+// Start the manifest download at module evaluation so it overlaps bundle parsing.
+// In non-browser test environments the request falls back to a relative URL.
+const manifestRequest: Promise<unknown> = (typeof window === "undefined"
+  ? Promise.reject(new Error("Schema manifest is unavailable outside the browser."))
+  : fetch(new URL(`${import.meta.env.BASE_URL}schemas/manifest.json`, window.location.href), { cache: "no-cache" })
+).then(async (response) => {
+  if (!response.ok) throw new Error(`Schema manifest returned ${response.status}.`);
+  return response.json() as Promise<unknown>;
+});
+manifestRequest.catch(() => undefined);
+
 export function ApplicationWorkbench({ engine, manifest }: ValidatorWorkbenchProps) {
-  const [themeId, setThemeId] = useState<RainglowThemeId>(() => loadEditorTheme());
+  const [themeId, setThemeId] = useState<RainglowThemeId>(initialThemeId);
   const changeTheme = (next: RainglowThemeId) => { setThemeId(next); saveEditorTheme(next); };
   useEffect(() => { applyRainglowTheme(themeId); }, [themeId]);
   return <div className="application-shell">
@@ -36,10 +51,7 @@ export default function App() {
     let active = true;
     Promise.all([
       import("./taplo/service").then(({ TaploService }) => TaploService.initialize()),
-      fetch(`${import.meta.env.BASE_URL}schemas/manifest.json`, { cache: "no-cache" }).then(async (response) => {
-        if (!response.ok) throw new Error(`Schema manifest returned ${response.status}.`);
-        return parseSchemaManifest(await response.json());
-      }),
+      manifestRequest.then((body) => parseSchemaManifest(body)),
     ]).then(
       ([engine, manifest]) => { if (active) setState({ type: "ready", engine, manifest }); },
       (error: unknown) => active && setState({ type: "error", message: error instanceof Error ? error.message : String(error) }),

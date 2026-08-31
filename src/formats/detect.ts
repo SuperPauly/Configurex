@@ -1,4 +1,4 @@
-import type { ConfigFormat } from "./types";
+import type { ConfigFormat, SchemaFormat } from "./types";
 
 export interface FormatDetection {
   readonly format: ConfigFormat | undefined;
@@ -12,6 +12,34 @@ const EXTENSIONS: Readonly<Record<string, ConfigFormat>> = {
   yml: "yaml",
   toml: "toml",
 };
+
+export const SCHEMA_EXTENSIONS: Readonly<Record<string, SchemaFormat>> = {
+  json: "json",
+  yaml: "yaml",
+  yml: "yaml",
+  toml: "toml",
+};
+
+export interface SchemaDetection {
+  readonly format: SchemaFormat | undefined;
+  readonly schemaKind: "jsonschema" | "openapi" | "unknown";
+}
+
+function schemaKindFor(value: unknown): "jsonschema" | "openapi" | "unknown" {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return "unknown";
+  const record = value as Record<string, unknown>;
+  if (typeof record.openapi === "string" || typeof record.swagger === "string") return "openapi";
+  if (typeof record.$schema === "string" || typeof record.$ref === "string" || typeof record.$defs === "object" || typeof record.definitions === "object") return "jsonschema";
+  return "unknown";
+}
+
+export function detectSchemaFormat(fileName: string | undefined, value: unknown): SchemaDetection {
+  const extension = fileName?.toLowerCase().match(/\.([^.]+)$/)?.[1];
+  const format = extension ? SCHEMA_EXTENSIONS[extension] : undefined;
+  const schemaKind = schemaKindFor(value);
+  if (format) return { format, schemaKind: schemaKind === "unknown" ? "jsonschema" : schemaKind };
+  return { format, schemaKind };
+}
 
 export function detectFormat(fileName: string | undefined, source: string): FormatDetection {
   const extension = fileName?.toLowerCase().match(/\.([^.]+)$/)?.[1];
