@@ -101,4 +101,4 @@ and the production build before deploying `dist` to GitHub Pages.
 
 The production site is configured for:
 
-<https://superpauly.github.io/CodexConfChecker/>
+<https://superpauly.github.io/Configurex/>
