@@ -28,7 +28,7 @@ import { codexMigrationDiagnostics } from "../schema/codex-migrations";
 import type { TomlEngine } from "../taplo/service";
 import type { SchemaManifest } from "../types/schema";
 
-const MAX_CONFIG_BYTES = 2 * 1024 * 1024;
+const MAX_CONFIG_BYTES = 6 * 1024 * 1024;
 const MAX_SCHEMA_FILES = 50;
 const MAX_SCHEMA_BUNDLE_BYTES = 10 * 1024 * 1024;
 const STARTER_TOML = '# Paste or upload your configuration\nmodel = "gpt-5"\n';
