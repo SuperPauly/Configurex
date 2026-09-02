@@ -66,13 +66,25 @@ export function translateSchemaProblem(problem: SchemaProblem, context: SchemaDi
     dataPath,
     schemaPath: problem.schemaPath,
   };
-  if (problem.keyword === "schema-compile" || problem.keyword === "schema-invalid" || problem.keyword === "schema-draft") return {
-    ...base,
-    hasSourceLocation: false,
-    message: problem.message,
-    explanation: "The uploaded JSON Schema could not be used, so the configuration itself was not validated against it.",
-    suggestion: "Correct the uploaded JSON Schema, then run validation again.",
-  };
+  if (problem.keyword === "schema-compile" || problem.keyword === "schema-invalid" || problem.keyword === "schema-draft" || problem.keyword === "schema-unsupported-document") {
+    const tupleHint = typeof problem.params.hint === "string" ? problem.params.hint : undefined;
+    const schemaLevel = problem.keyword === "schema-invalid" || problem.keyword === "schema-compile";
+    return {
+      ...base,
+      hasSourceLocation: false,
+      message: problem.message,
+      explanation: schemaLevel
+        ? tupleHint ?? "The uploaded JSON Schema could not be used, so the configuration itself was not validated against it."
+        : problem.keyword === "schema-draft"
+          ? "The declared JSON Schema draft is not one Configurex can validate. Pick a supported Schema dialect override in the Schema validation settings to compile it anyway."
+          : "This document type is not a standalone JSON Schema, so whole-document validation would be inaccurate.",
+      suggestion: schemaLevel
+        ? tupleHint ? "Declare the intended tuple length or switch to the Compatible preset, then run validation again." : "Correct the uploaded JSON Schema, then run validation again."
+        : problem.keyword === "schema-draft"
+          ? "Choose the intended draft under Schema dialect, or fix the `$schema` URI in the schema."
+          : "Extract the specific schema object (for example from `components.schemas`) and load it as a JSON Schema document.",
+    };
+  }
   if (problem.keyword === "required" && missing) return {
     ...base,
     message: `Missing required property \`${missing}\` at \`${problem.instancePath || "/"}\`.`,
