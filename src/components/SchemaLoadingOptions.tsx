@@ -48,8 +48,8 @@ export function SchemaLoadingOptions({ settings, onChange }: SchemaLoadingOption
       </label>
       <fieldset className="reference-mode schema-loading-references">
         <legend>Reference policy</legend>
-        <label><input checked={settings.referenceMode === "internal"} name="loading-reference-mode" onChange={() => update({ referenceMode: "internal" })} type="radio" /> Internal references only</label>
-        <label><input checked={settings.referenceMode === "bundle"} name="loading-reference-mode" onChange={() => update({ referenceMode: "bundle" })} type="radio" /> Allow local bundled dependency schemas</label>
+        <label><input checked={settings.referenceMode === "internal"} name="loading-reference-mode" onChange={(event) => { if (event.target.checked) update({ referenceMode: "internal" }); }} type="radio" /> Internal references only</label>
+        <label><input checked={settings.referenceMode === "bundle"} name="loading-reference-mode" onChange={(event) => { if (event.target.checked) update({ referenceMode: "bundle" }); }} type="radio" /> Allow local bundled dependency schemas</label>
       </fieldset>
     </div>
     <p className="settings-hint">OpenAPI documents are detected and reported, but Configurex validates JSON Schema documents; extract an embedded schema object first. Reference policies never fetch remote URLs.</p>

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 
@@ -29,11 +29,11 @@ const manifest: SchemaManifest = {
 
 describe("GenericWorkbench", () => {
   beforeEach(() => {
-    localStorage.clear();
+    window.localStorage.clear();
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ type: "object" }), { status: 200 })));
   });
 
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { window.localStorage.clear(); vi.unstubAllGlobals(); });
 
   it("selects JSON, YAML, TOML, or automatic detection and offers all themes", async () => {
     render(<GenericWorkbench engine={engine} manifest={manifest} />);
@@ -211,5 +211,143 @@ describe("GenericWorkbench", () => {
     expect(editor).toHaveValue("port = 8443\n");
     await userEvent.keyboard("{Escape}");
     expect(editor.closest(".editor-shell")).not.toHaveClass("is-expanded");
+  });
+});
+
+describe("schema validation settings UI", () => {
+  const LEGACY_TUPLE = JSON.stringify({
+    $schema: "http://json-schema.org/draft-07/schema#",
+    type: "array",
+    items: [{ type: "string" }, { type: "number" }],
+  });
+
+  it("shows initial loading options with Strict selected by default", () => {
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    expect(screen.getByText(/schema loading options/i)).toBeVisible();
+    expect(screen.getByLabelText(/schema document type/i)).toHaveValue("auto");
+    expect(screen.getByLabelText(/schema dialect/i)).toHaveValue("auto");
+    expect(screen.getByLabelText(/validation preset/i)).toHaveValue("strict");
+    expect(screen.getByRole("radio", { name: /internal references only/i })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /allow local bundled dependency schemas/i })).not.toBeChecked();
+    expect(screen.getByText(/advanced options/i).closest("details")).not.toHaveAttribute("open");
+  });
+
+  it("rejects the legacy tuple schema under the default Strict preset with the tuple hint", async () => {
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File([LEGACY_TUPLE], "tuple.schema.json", { type: "application/json" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/is 2-tuple/i);
+  });
+
+  it("uses the selected settings for the first preflight: Compatible accepts a legacy tuple schema", async () => {
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.selectOptions(screen.getByLabelText(/validation preset/i), "compatible");
+    await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File([LEGACY_TUPLE], "tuple.schema.json", { type: "application/json" }));
+    expect(await screen.findByText("tuple.schema.json")).toBeVisible();
+    expect(screen.queryByText(/is 2-tuple/i)).not.toBeInTheDocument();
+    // Let the upload-triggered re-preflight settle so it cannot persist into later tests.
+    await waitFor(() => expect(screen.getByText(/compatible validation is active/i)).toBeVisible());
+  });
+
+  it("displays automatic dialect detection after loading", async () => {
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File([JSON.stringify({ type: "object" })], "plain.schema.json", { type: "application/json" }));
+    expect(await screen.findByText("plain.schema.json")).toBeVisible();
+    const summary = await screen.findByLabelText(/active schema settings/i);
+    expect(summary).toHaveTextContent(/automatic fallback/i);
+    expect(summary).toHaveTextContent(/draft 2020-12/i);
+  });
+
+
+
+
+
+  it("falls back to Strict when stored settings are malformed", () => {
+    localStorage.setItem("codex-config-checker.schema-validation-settings", "{{{broken");
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    expect(screen.getByLabelText(/validation preset/i)).toHaveValue("strict");
+  });
+
+
+
+
+
+  it("switches to Custom when an advanced toggle changes, and presets overwrite toggles", async () => {
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.click(screen.getByText(/advanced options/i));
+    await userEvent.click(screen.getByRole("checkbox", { name: /require tuple length constraints/i }));
+    expect(screen.getByLabelText(/validation preset/i)).toHaveValue("custom");
+    await userEvent.selectOptions(screen.getByLabelText(/validation preset/i), "permissive");
+    expect(screen.getByRole("checkbox", { name: /require tuple length constraints/i })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /require strict schema keywords/i })).not.toBeChecked();
+    // Allow the change's effects to settle before the next test reads storage.
+    await waitFor(() => expect(screen.getByLabelText(/validation preset/i)).toHaveValue("permissive"));
+    await new Promise((resolve) => { setTimeout(resolve, 0); });
+  });
+
+  it("persists settings and restores them after a remount", async () => {
+    const first = render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.selectOptions(screen.getByLabelText(/validation preset/i), "compatible");
+    first.unmount();
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    expect(screen.getByLabelText(/validation preset/i)).toHaveValue("compatible");
+  });
+
+  it("sends a dialect override to the worker and reports a mismatch warning", async () => {
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.selectOptions(screen.getByLabelText(/schema dialect/i), "draft-2020-12");
+    await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File([JSON.stringify({ $schema: "http://json-schema.org/draft-07/schema#", type: "object" })], "config.schema.json", { type: "application/json" }));
+    expect(await screen.findByText("config.schema.json")).toBeVisible();
+    const summary = await screen.findByLabelText(/active schema settings/i);
+    expect(summary).toHaveTextContent(/manual override/i);
+    expect(summary).toHaveTextContent(/draft 2020-12/i);
+    expect(summary).toHaveTextContent(/draft-07\/schema/i);
+    // Let the upload-triggered re-preflight settle so it cannot persist into later tests.
+    await waitFor(() => expect(screen.getByLabelText(/active schema settings/i)).toHaveTextContent(/manual override/i));
+    await new Promise((resolve) => { setTimeout(resolve, 50); });
+  });
+
+  it("shows the reduced-validation warning and re-preflights when settings change", async () => {
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File([LEGACY_TUPLE], "tuple.schema.json", { type: "application/json" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/is 2-tuple/i);
+    await userEvent.selectOptions(screen.getByLabelText(/validation preset/i), "compatible");
+    expect(await screen.findByText("tuple.schema.json")).toBeVisible();
+    expect(await screen.findByText(/compatible validation is active/i)).toBeVisible();
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
+
+  it("resets to Strict defaults and re-preflights from the settings drawer", async () => {
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.selectOptions(screen.getByLabelText(/validation preset/i), "compatible");
+    await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File([LEGACY_TUPLE], "tuple.schema.json", { type: "application/json" }));
+    expect(await screen.findByText("tuple.schema.json")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: /schema settings/i }));
+    const drawer = screen.getByRole("complementary", { name: /schema validation settings/i });
+    expect(within(drawer).getByLabelText(/validation preset/i)).toHaveValue("compatible");
+    expect(within(drawer).getByText(/compatible validation is active/i)).toBeVisible();
+    await userEvent.click(within(drawer).getByRole("button", { name: /reset to strict defaults/i }));
+    expect(within(drawer).getByLabelText(/validation preset/i)).toHaveValue("strict");
+    expect(within(drawer).queryByText(/compatible validation is active/i)).not.toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/is 2-tuple/i);
+    expect(localStorage.getItem("codex-config-checker.schema-validation-settings")).toContain('"preset":"strict"');
+  });
+
+  it("shows the declared $schema and interpretation in the settings drawer", async () => {
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File([JSON.stringify({ $schema: "http://json-schema.org/draft-07/schema#", type: "object" })], "config.schema.json", { type: "application/json" }));
+    expect(await screen.findByText("config.schema.json")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: /schema settings/i }));
+    const drawer = screen.getByRole("complementary", { name: /schema validation settings/i });
+    expect(within(drawer).getByText(/draft-07\/schema/i)).toBeVisible();
+    expect(within(drawer).getByText(/declared by the schema/i)).toBeVisible();
+    expect(within(drawer).getByText("Draft 7", { selector: "dd" })).toBeVisible();
+  });
+
+  it("reports OpenAPI documents as unsupported instead of validating them as JSON Schema", async () => {
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File([JSON.stringify({ openapi: "3.1.0", info: { title: "API", version: "1" }, paths: {} })], "openapi.json", { type: "application/json" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/openapi 3\.1 documents are not validated as standalone json schema/i);
   });
 });

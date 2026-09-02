@@ -342,7 +342,7 @@ function sameCompilation(request: CompileRequest): boolean {
 }
 
 function compileWithCache(request: CompileRequest): CompilationResult {
-  if (sameCompilation(request)) return cachedCompilation!.compiled;
+  if (sameCompilation(request)) return { ...cachedCompilation!.compiled, requestId: request.requestId };
   const compiled = compileSchemaRequest(request);
   lastFreshCompilation = compiled;
   cachedCompilation = {

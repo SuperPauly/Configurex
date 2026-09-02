@@ -355,10 +355,12 @@ describe("compile cache", () => {
   const preflight = (requestId: number, settings: SchemaValidationSettings) => preflightSchemaRequest({ kind: "preflight", requestId, primary: { fileName: "schema.json", schema }, dependencies: [], settings });
 
   it("reuses the cached compilation for an unchanged schema and unchanged settings", () => {
-    preflight(40, strict);
+    const first = preflight(40, strict);
     const fresh = lastFreshCompilation;
     const second = preflight(41, strict);
     expect(second.valid).toBe(true);
+    expect(second.requestId).toBe(41);
+    expect(first.requestId).toBe(40);
     expect(lastFreshCompilation).toBe(fresh);
   });
 

@@ -111,8 +111,8 @@ export function SchemaSettingsDrawer({ settings, interpretation, onChange }: Sch
         </fieldset>
         <fieldset className="settings-section reference-mode">
           <legend>Reference policy</legend>
-          <label><input checked={settings.referenceMode === "internal"} name="settings-reference-mode" onChange={() => update({ referenceMode: "internal" })} type="radio" /> Internal references only</label>
-          <label><input checked={settings.referenceMode === "bundle"} name="settings-reference-mode" onChange={() => update({ referenceMode: "bundle" })} type="radio" /> Allow local bundled dependency schemas</label>
+          <label><input checked={settings.referenceMode === "internal"} name="settings-reference-mode" onChange={(event) => { if (event.target.checked) update({ referenceMode: "internal" }); }} type="radio" /> Internal references only</label>
+          <label><input checked={settings.referenceMode === "bundle"} name="settings-reference-mode" onChange={(event) => { if (event.target.checked) update({ referenceMode: "bundle" }); }} type="radio" /> Allow local bundled dependency schemas</label>
           <p className="settings-hint">Remote URL references are never fetched in this browser.</p>
         </fieldset>
         {warning ? <p className="schema-warning" role="status">{warning}</p> : null}

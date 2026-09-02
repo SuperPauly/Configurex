@@ -30,7 +30,7 @@ import {
   type SchemaValidationSettings,
 } from "../generic-schema/settings";
 import type { LocalSchemaFile, SchemaInterpretation, SchemaPreflightRequest, SchemaValidationRequest, SchemaValidationResponse } from "../generic-schema/types";
-import { preflightSchemaRequest, validateSchemaRequest } from "../generic-schema/worker";
+import { preflightSchemaRequest, resetSchemaCompileCacheForTests, validateSchemaRequest } from "../generic-schema/worker";
 import { applyLintSeverities, lintDocument } from "../lint/engine";
 import { loadLintSettings, saveLintSettings, type LintSettings } from "../lint/settings";
 import { schemaAssetUrl } from "../schema/manifest";
@@ -75,7 +75,12 @@ function validSchemaUrl(value: string): URL {
   return url;
 }
 
-function createSchemaClient(): SchemaClient { return typeof Worker === "undefined" ? inProcessClient() : new SchemaWorkerClient(); }
+function createSchemaClient(): SchemaClient {
+  // The in-process fallback shares the module-level compile cache, so start
+  // each client from a clean slate.
+  if (typeof Worker === "undefined") resetSchemaCompileCacheForTests();
+  return typeof Worker === "undefined" ? inProcessClient() : new SchemaWorkerClient();
+}
 function extension(format: ConfigFormat): string { return format === "yaml" ? "yaml" : format; }
 function mimeType(format: ConfigFormat): string { return format === "json" ? "application/json" : format === "yaml" ? "application/yaml" : "application/toml"; }
 function schemaOutputName(target: SchemaFormat, kind: "jsonschema" | "openapi"): string { return `${kind === "openapi" ? "openapi" : "schema"}.${extension(target)}`; }
@@ -218,12 +223,22 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
     }
   }, [customPrimary, trackedPrimary, dependencies, schemaClient]);
 
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
   const updateSchemaSettings = useCallback((next: SchemaValidationSettings) => {
+    // Ignore stale notifications fired after unmount (React can dispatch queued
+    // control events during teardown) and no-op changes: only real, current
+    // edits persist and trigger a re-preflight.
+    if (!mountedRef.current || JSON.stringify(next) === JSON.stringify(schemaSettings)) return;
     setSchemaSettings(next);
     settingsRef.current = next;
     saveSchemaValidationSettings(next);
     void preflightActiveSchema(next);
-  }, [preflightActiveSchema]);
+  }, [preflightActiveSchema, schemaSettings]);
 
   useEffect(() => {
     if (!revision) return;
@@ -376,7 +391,7 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
           <p className="drop-hint">You can also drop a .json, .yaml, .yml, or .toml schema file here, or paste a copied file.</p>
           <SchemaLoadingOptions onChange={updateSchemaSettings} settings={schemaSettings} />
           {schemaFeedback ? <p className="schema-feedback" role="alert"><TriangleAlert aria-hidden="true" size={16} />{schemaFeedback}</p> : null}
-          <details className="schema-advanced"><summary>Advanced</summary><div className="schema-upload"><span>Local references</span><label className="button button-secondary"><FileUp aria-hidden="true" size={17} /> {dependencies.length ? `${dependencies.length} loaded` : "Choose dependencies"}<input accept=".json,.yaml,.yml,.toml,application/json,application/yaml" aria-label="Upload schema dependencies" className="visually-hidden" multiple onChange={(event) => { void uploadDependencies(event.currentTarget.files); event.currentTarget.value = ""; }} type="file" /></label></div><fieldset className="reference-mode"><legend>$ref policy</legend><label><input checked={schemaSettings.referenceMode === "internal"} name="reference-mode" onChange={() => updateSchemaSettings({ ...schemaSettings, referenceMode: "internal" })} type="radio" /> Internal only</label><label><input checked={schemaSettings.referenceMode === "bundle"} name="reference-mode" onChange={() => updateSchemaSettings({ ...schemaSettings, referenceMode: "bundle" })} type="radio" /> Uploaded bundle</label></fieldset></details>
+          <details className="schema-advanced"><summary>Advanced</summary><div className="schema-upload"><span>Local references</span><label className="button button-secondary"><FileUp aria-hidden="true" size={17} /> {dependencies.length ? `${dependencies.length} loaded` : "Choose dependencies"}<input accept=".json,.yaml,.yml,.toml,application/json,application/yaml" aria-label="Upload schema dependencies" className="visually-hidden" multiple onChange={(event) => { void uploadDependencies(event.currentTarget.files); event.currentTarget.value = ""; }} type="file" /></label></div><fieldset className="reference-mode"><legend>$ref policy</legend><label><input checked={schemaSettings.referenceMode === "internal"} name="reference-mode" onChange={(event) => { if (event.target.checked) updateSchemaSettings({ ...schemaSettings, referenceMode: "internal" }); }} type="radio" /> Internal only</label><label><input checked={schemaSettings.referenceMode === "bundle"} name="reference-mode" onChange={(event) => { if (event.target.checked) updateSchemaSettings({ ...schemaSettings, referenceMode: "bundle" }); }} type="radio" /> Uploaded bundle</label></fieldset></details>
         </div> : null}
       </>}
     </section>
