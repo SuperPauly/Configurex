@@ -27,14 +27,14 @@ const manifest: SchemaManifest = {
   ] } },
 };
 
+beforeEach(() => {
+  window.localStorage.clear();
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ type: "object" }), { status: 200 })));
+});
+
+afterEach(() => { window.localStorage.clear(); vi.unstubAllGlobals(); });
+
 describe("GenericWorkbench", () => {
-  beforeEach(() => {
-    window.localStorage.clear();
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ type: "object" }), { status: 200 })));
-  });
-
-  afterEach(() => { window.localStorage.clear(); vi.unstubAllGlobals(); });
-
   it("selects JSON, YAML, TOML, or automatic detection and offers all themes", async () => {
     render(<GenericWorkbench engine={engine} manifest={manifest} />);
     expect(screen.getByLabelText(/configuration format/i)).toHaveValue("toml");
@@ -309,12 +309,14 @@ describe("schema validation settings UI", () => {
 
   it("shows the reduced-validation warning and re-preflights when settings change", async () => {
     render(<GenericWorkbench engine={engine} manifest={manifest} />);
-    await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File([LEGACY_TUPLE], "tuple.schema.json", { type: "application/json" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(/is 2-tuple/i);
     await userEvent.selectOptions(screen.getByLabelText(/validation preset/i), "compatible");
+    await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File([LEGACY_TUPLE], "tuple.schema.json", { type: "application/json" }));
     expect(await screen.findByText("tuple.schema.json")).toBeVisible();
     expect(await screen.findByText(/compatible validation is active/i)).toBeVisible();
-    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: /schema settings/i }));
+    const drawer = screen.getByRole("complementary", { name: /schema validation settings/i });
+    await userEvent.selectOptions(within(drawer).getByLabelText(/validation preset/i), "strict");
+    expect(await screen.findByRole("alert")).toHaveTextContent(/is 2-tuple/i);
   });
 
   it("resets to Strict defaults and re-preflights from the settings drawer", async () => {
