@@ -4,6 +4,7 @@ import { vi } from "vitest";
 
 import type { TomlEngine } from "../taplo/service";
 import type { SchemaManifest } from "../types/schema";
+import { resetSchemaStoreCatalogForTests } from "../generic-schema/schemastore";
 import { GenericWorkbench } from "./GenericWorkbench";
 
 vi.mock("@uiw/react-codemirror", async () => {
@@ -29,6 +30,7 @@ const manifest: SchemaManifest = {
 
 beforeEach(() => {
   window.localStorage.clear();
+  resetSchemaStoreCatalogForTests();
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ type: "object" }), { status: 200 })));
 });
 
@@ -121,6 +123,61 @@ describe("GenericWorkbench", () => {
     expect(screen.getByText("mine.schema.json")).toBeVisible();
   });
 
+  it("edits the active schema and uses the saved version for validation", async () => {
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File([JSON.stringify({
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      type: "object",
+      properties: { port: { type: "integer" } },
+    })], "ports.schema.json", { type: "application/json" }));
+    await screen.findByText("ports.schema.json");
+
+    await userEvent.click(screen.getByRole("button", { name: /edit schema/i }));
+    const dialog = await screen.findByRole("dialog", { name: /edit json schema/i });
+    const schemaEditor = within(dialog).getByRole("textbox", { name: /json schema editor/i });
+    fireEvent.change(schemaEditor, { target: { value: JSON.stringify({
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      type: "object",
+      properties: { port: { type: "string" } },
+    }, null, 2) } });
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: /^save$/i })).toBeEnabled());
+    await userEvent.click(within(dialog).getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /edit json schema/i })).not.toBeInTheDocument());
+
+    await userEvent.selectOptions(screen.getByLabelText(/configuration format/i), "json");
+    fireEvent.change(screen.getByRole("textbox", { name: /json configuration editor/i }), { target: { value: '{"port":443}' } });
+    await userEvent.click(screen.getByRole("button", { name: /^validate$/i }));
+    expect(await screen.findByText(/wrong value type.*expected string/i)).toBeVisible();
+  });
+
+  it("keeps the schema editor open for backdrop clicks and Escape", async () => {
+    const { container } = render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File([JSON.stringify({ type: "object" })], "locked.schema.json", { type: "application/json" }));
+    await screen.findByText("locked.schema.json");
+    await userEvent.click(screen.getByRole("button", { name: /edit schema/i }));
+
+    const dialog = await screen.findByRole("dialog", { name: /edit json schema/i });
+    fireEvent.mouseDown(container.querySelector(".schema-editor-backdrop")!);
+    expect(dialog).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: /edit json schema/i })).toBeVisible();
+  });
+
+  it("blocks invalid schema edits and Cancel discards the draft", async () => {
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File([JSON.stringify({ type: "object" })], "cancel.schema.json", { type: "application/json" }));
+    await screen.findByText("cancel.schema.json");
+    await userEvent.click(screen.getByRole("button", { name: /edit schema/i }));
+    const dialog = await screen.findByRole("dialog", { name: /edit json schema/i });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: /json schema editor/i }), { target: { value: '{"type":42}' } });
+    expect(within(dialog).getByRole("button", { name: /^save$/i })).toBeDisabled();
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(/invalid|type/i);
+    await userEvent.click(within(dialog).getByRole("button", { name: /^cancel$/i }));
+
+    await userEvent.click(screen.getByRole("button", { name: /edit schema/i }));
+    expect(within(await screen.findByRole("dialog", { name: /edit json schema/i })).getByRole("textbox", { name: /json schema editor/i })).toHaveValue(JSON.stringify({ type: "object" }, null, 2));
+  });
+
   it("offers downloads once a configuration parses, and blocks broken documents", async () => {
     render(<GenericWorkbench engine={engine} manifest={manifest} />);
     await userEvent.click(screen.getByRole("button", { name: /^download$/i }));
@@ -176,7 +233,7 @@ describe("GenericWorkbench", () => {
     await userEvent.type(screen.getByLabelText(/https schema url/i), "https://example.test/schema.txt");
     await userEvent.click(screen.getByRole("button", { name: /fetch schema/i }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/ends in \.json/i);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.some(([input]) => String(input instanceof URL ? input.href : input).includes("example.test"))).toBe(false);
   });
 
   it("fetches a YAML schema over HTTPS", async () => {
@@ -211,6 +268,36 @@ describe("GenericWorkbench", () => {
     expect(editor).toHaveValue("port = 8443\n");
     await userEvent.keyboard("{Escape}");
     expect(editor.closest(".editor-shell")).not.toHaveClass("is-expanded");
+  });
+
+  it("populates schema URL input with SchemaStore catalog datalist", async () => {
+    const catalogResponse = {
+      schemas: [
+        { name: "Renovate", url: "https://docs.renovatebot.com/renovate-schema.json" },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).includes("schemastore.org")) {
+        return new Response(JSON.stringify(catalogResponse), { status: 200 });
+      }
+      return new Response(JSON.stringify({ type: "object" }), { status: 200 });
+    }));
+
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.click(screen.getByRole("button", { name: /fetch url/i }));
+
+    await screen.findByText(/1 schemas/);
+    
+    const input = screen.getByLabelText(/https schema url/i);
+    expect(input).toHaveAttribute("list", "schema-url-options");
+
+    const datalist = document.querySelector('#schema-url-options option[value="https://docs.renovatebot.com/renovate-schema.json"]');
+    expect(datalist).toBeInTheDocument();
+
+    const link = screen.getByRole("link", { name: /schemastore catalog/i });
+    expect(link).toHaveAttribute("href", "https://www.schemastore.org/#schemalist");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noreferrer");
   });
 });
 

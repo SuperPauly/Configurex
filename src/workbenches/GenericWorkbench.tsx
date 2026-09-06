@@ -1,7 +1,7 @@
 import { EditorSelection } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { Check, ChevronDown, Clipboard, Download, FileJson, FileUp, Link2, LoaderCircle, Maximize2, Minimize2, Paintbrush, Play, Trash2, TriangleAlert, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
+import { Check, ChevronDown, Clipboard, Download, FileJson, FilePenLine, FileUp, Link2, LoaderCircle, Maximize2, Minimize2, Paintbrush, Play, Trash2, TriangleAlert, X } from "lucide-react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
 
 import { LintSettingsDrawer } from "../components/LintSettingsDrawer";
 import { ProblemsPanel } from "../components/ProblemsPanel";
@@ -21,6 +21,7 @@ import type { ConfigFormat, FormatAdapter, FormatOptions, SchemaFormat } from ".
 import { YamlAdapter } from "../formats/yaml";
 import { SchemaWorkerClient } from "../generic-schema/client";
 import { schemaPropertyNames, translateSchemaProblem } from "../generic-schema/diagnostics";
+import { loadSchemaStoreCatalog, SCHEMASTORE_SITE_URL, type CatalogEntry } from "../generic-schema/schemastore";
 import {
   loadSchemaValidationSettings,
   reducedValidationNotice,
@@ -37,6 +38,11 @@ import { schemaAssetUrl } from "../schema/manifest";
 import { codexMigrationDiagnostics } from "../schema/codex-migrations";
 import type { TomlEngine } from "../taplo/service";
 import type { SchemaManifest } from "../types/schema";
+
+const SchemaEditorModal = lazy(async () => {
+  const module = await import("../components/SchemaEditorModal");
+  return { default: module.SchemaEditorModal };
+});
 
 const MAX_CONFIG_BYTES = 6 * 1024 * 1024;
 const MAX_SCHEMA_FILES = 50;
@@ -110,6 +116,7 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
   const [loaderAction, setLoaderAction] = useState<"none" | "paste" | "url">("none");
   const [schemaDraft, setSchemaDraft] = useState("");
   const [schemaUrl, setSchemaUrl] = useState("");
+  const [catalog, setCatalog] = useState<readonly CatalogEntry[]>([]);
   const [schemaFeedback, setSchemaFeedback] = useState("");
   const [schemaBusy, setSchemaBusy] = useState(false);
   const [editorExpanded, setEditorExpanded] = useState(false);
@@ -120,6 +127,7 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
   const [customPrimary, setCustomPrimary] = useState<LocalSchemaFile | undefined>();
   const [dependencies, setDependencies] = useState<readonly LocalSchemaFile[]>([]);
   const [schemaSettings, setSchemaSettings] = useState<SchemaValidationSettings>(() => loadSchemaValidationSettings());
+  const [schemaEditorOpen, setSchemaEditorOpen] = useState(false);
   const [interpretation, setInterpretation] = useState<SchemaInterpretation | undefined>(undefined);
   const [lintSettings, setLintSettings] = useState<LintSettings>(() => loadLintSettings());
   const [status, setStatus] = useState<Status>({ type: "idle", message: "Choose or add a JSON Schema to begin." });
@@ -143,6 +151,16 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
   const adapters = useMemo<Record<ConfigFormat, FormatAdapter>>(() => ({ json: new JsonAdapter(), yaml: new YamlAdapter(), toml: new TomlAdapter(engine) }), [engine]);
 
   useEffect(() => () => schemaClient.dispose(), [schemaClient]);
+  useEffect(() => {
+    if (loaderAction !== "url") return;
+    let live = true;
+    void loadSchemaStoreCatalog().then((entries) => {
+      if (live) setCatalog(entries);
+    });
+    return () => {
+      live = false;
+    };
+  }, [loaderAction]);
   useEffect(() => {
     if (!selectedVersion) return;
     const run = ++schemaLoadSequence.current;
@@ -287,6 +305,33 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
       setSchemaFeedback(cause instanceof Error ? cause.message : "This is not a valid JSON Schema.");
     } finally { setSchemaBusy(false); }
   };
+  const validateSchemaDraft = useCallback(async (schema: unknown) => {
+    if (!primary) return "Load a schema before editing it.";
+    const checked = await schemaClient.preflight({
+      primary: { fileName: primary.fileName, schema },
+      dependencies,
+      settings: schemaSettings,
+    });
+    return checked.valid ? undefined : checked.problems[0]?.message ?? "This is not a valid JSON Schema.";
+  }, [dependencies, primary, schemaClient, schemaSettings]);
+  const saveEditedSchema = async (schema: unknown) => {
+    if (!primary) return;
+    const candidate = { fileName: primary.fileName, schema };
+    const checked = await schemaClient.preflight({ primary: candidate, dependencies, settings: schemaSettings });
+    if (!checked.valid) {
+      setStatus({ type: "error", message: checked.problems[0]?.message ?? "This is not a valid JSON Schema." });
+      return;
+    }
+    schemaLoadSequence.current += 1;
+    compiledSchema.current = { primary: candidate, dependencies, settings: schemaSettings };
+    setInterpretation(checked.interpretation);
+    setProgramId("none");
+    setTrackedPrimary(undefined);
+    setCustomPrimary(candidate);
+    setDiagnostics([]);
+    setSchemaEditorOpen(false);
+    setStatus({ type: "idle", message: `${candidate.fileName} updated. Press Validate to check this configuration.` });
+  };
   const uploadPrimary = async (file: File | undefined) => {
     if (!file) return;
     try { if (file.size > MAX_CONFIG_BYTES) throw new Error("Schema files must be 2 MiB or smaller."); await activateCustomSchema(await parseSchemaFile(file)); }
@@ -364,7 +409,7 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
       {!loaderOpen && primary ? <div className="schema-summary">
         <span><Check aria-hidden="true" size={17} /><small>Schema</small><strong>{program?.name ?? customPrimary?.fileName}</strong>{selectedVersion ? <em>{selectedVersion.label}</em> : null}</span>
         {interpretation?.effectiveDialect ? <small className="schema-summary-dialect">{schemaDialectLabel(interpretation.effectiveDialect as ResolvedSchemaDialect)}{interpretation.dialectSource === "manual-override" ? " (manual)" : interpretation.dialectSource === "auto-fallback" ? " (auto)" : ""}</small> : null}
-        <button className="button button-quiet" onClick={() => setLoaderOpen(true)} type="button">Change</button>
+        <div className="schema-summary-actions"><button className="button button-quiet" onClick={() => setSchemaEditorOpen(true)} type="button"><FilePenLine aria-hidden="true" size={16} /> Edit schema</button><button className="button button-quiet" onClick={() => setLoaderOpen(true)} type="button">Change</button></div>
       </div> : <>
         <div className="schema-loader-heading"><div><h2>Load schema</h2><p>Choose a ready-made schema or add your own.</p></div>{primary ? <button aria-label="Close schema loader" className="icon-button" onClick={() => setLoaderOpen(false)} type="button"><X aria-hidden="true" size={18} /></button> : null}</div>
         <div className="schema-source-row">
@@ -387,7 +432,7 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
             <label className="button button-secondary"><FileUp aria-hidden="true" size={17} /> Choose file<input accept=".json,.yaml,.yml,.toml,application/json,application/yaml" aria-label="Choose schema file (JSON, YAML, or TOML)" className="visually-hidden" onChange={(event) => { void uploadPrimary(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} type="file" /></label>
           </div>
           {loaderAction === "paste" ? <div className="schema-input-reveal"><label htmlFor="schema-json">JSON Schema or OpenAPI (JSON or YAML)</label><textarea id="schema-json" onChange={(event) => setSchemaDraft(event.target.value)} placeholder={'$schema: https://json-schema.org/draft/2020-12/schema\ntype: object\n# — or paste JSON, including an OpenAPI document'} rows={6} value={schemaDraft} /><button className="button button-primary" disabled={!schemaDraft.trim() || schemaBusy} onClick={() => void loadPastedSchema()} type="button">{schemaBusy ? "Checking..." : "Load schema"}</button></div> : null}
-          {loaderAction === "url" ? <div className="schema-input-reveal schema-url-input"><label htmlFor="schema-url">HTTPS schema URL (.json, .yaml, .yml, .toml)</label><div><input id="schema-url" inputMode="url" onChange={(event) => setSchemaUrl(event.target.value)} placeholder="https://example.com/schema.yaml" type="url" value={schemaUrl} /><button className="button button-primary" disabled={!schemaUrl.trim() || schemaBusy} onClick={() => void fetchSchema()} type="button">{schemaBusy ? "Fetching..." : "Fetch schema"}</button></div></div> : null}
+          {loaderAction === "url" ? <div className="schema-input-reveal schema-url-input"><label htmlFor="schema-url">HTTPS schema URL (.json, .yaml, .yml, .toml)</label><p className="schema-hint">Start typing to pick from the <a href={SCHEMASTORE_SITE_URL} rel="noreferrer" target="_blank">SchemaStore catalog</a>{catalog.length ? ` (${catalog.length} schemas)` : ""}.</p><div><input id="schema-url" inputMode="url" list="schema-url-options" onChange={(event) => setSchemaUrl(event.target.value)} placeholder="https://example.com/schema.yaml" type="url" value={schemaUrl} /><button className="button button-primary" disabled={!schemaUrl.trim() || schemaBusy} onClick={() => void fetchSchema()} type="button">{schemaBusy ? "Fetching..." : "Fetch schema"}</button></div><datalist id="schema-url-options">{catalog.map((e) => <option key={e.url} label={e.name} value={e.url} />)}</datalist></div> : null}
           <p className="drop-hint">You can also drop a .json, .yaml, .yml, or .toml schema file here, or paste a copied file.</p>
           <SchemaLoadingOptions onChange={updateSchemaSettings} settings={schemaSettings} />
           {schemaFeedback ? <p className="schema-feedback" role="alert"><TriangleAlert aria-hidden="true" size={16} />{schemaFeedback}</p> : null}
@@ -420,5 +465,6 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
     </aside> : null}
     <ProblemsPanel diagnostics={diagnostics} onFix={applyFix} onVisit={visit} />
     <p className="privacy-note">Configuration and schema files stay in this browser. Optional site visit metrics only start after consent.</p>
+    {schemaEditorOpen && primary ? <Suspense fallback={<div className="modal-backdrop schema-editor-backdrop"><div className="schema-editor-loading" role="status">Loading schema editor...</div></div>}><SchemaEditorModal fileName={primary.fileName} initialSchema={primary.schema} onCancel={() => setSchemaEditorOpen(false)} onSave={saveEditedSchema} themeId={themeId} validateSchema={validateSchemaDraft} /></Suspense> : null}
   </section>;
 }
