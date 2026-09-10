@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-09T12:29:14.702Z",
+  "generatedAt": "2026-09-10T12:29:01.849Z",
   "programs": {
     "codex": {
       "name": "Codex CLI",
@@ -11,15 +11,35 @@
           "label": "Current stable",
           "channel": "stable",
           "version": "Current stable",
-          "sha256": "f92585cd7123b073ec968f02e5b94582def528c222904da878cb89bfef7d50ee",
+          "sha256": "b28908a730e7518d34494148475c8f27eb6b724103bae78190f939ed01e41de0",
           "sourceUrl": "https://learn.chatgpt.com/docs/config-schema.json",
           "assetPath": "schemas/codex/stable-current/config-schema.json",
-          "syncedAt": "2026-09-03T12:30:28.746Z"
+          "syncedAt": "2026-09-10T12:29:01.849Z"
+        },
+        {
+          "id": "rust-v0.155.0-alpha.1",
+          "label": "v0.155.0-alpha.1",
+          "channel": "alpha",
+          "version": "v0.155.0-alpha.1",
+          "sha256": "895287b978baf5cb6dec9c2e91b71d067ed0ec8b67fd88e6be96ac2ffd3f027e",
+          "sourceUrl": "https://github.com/openai/codex/releases/download/rust-v0.155.0-alpha.1/config-schema.json",
+          "assetPath": "schemas/codex/releases/rust-v0.155.0-alpha.1/config-schema.json",
+          "syncedAt": "2026-09-10T12:29:01.849Z"
+        },
+        {
+          "id": "rust-v0.154.0",
+          "label": "v0.154.0",
+          "channel": "archive",
+          "version": "v0.154.0",
+          "sha256": "b28908a730e7518d34494148475c8f27eb6b724103bae78190f939ed01e41de0",
+          "sourceUrl": "https://github.com/openai/codex/releases/download/rust-v0.154.0/config-schema.json",
+          "assetPath": "schemas/codex/releases/rust-v0.154.0/config-schema.json",
+          "syncedAt": "2026-09-10T12:29:01.849Z"
         },
         {
           "id": "rust-v0.154.0-alpha.6.1",
           "label": "v0.154.0-alpha.6.1",
-          "channel": "alpha",
+          "channel": "archive",
           "version": "v0.154.0-alpha.6.1",
           "sha256": "b28908a730e7518d34494148475c8f27eb6b724103bae78190f939ed01e41de0",
           "sourceUrl": "https://github.com/openai/codex/releases/download/rust-v0.154.0-alpha.6.1/config-schema.json",
