@@ -20,6 +20,7 @@ import { TomlAdapter } from "../formats/toml";
 import type { ConfigFormat, FormatAdapter, FormatOptions, SchemaFormat } from "../formats/types";
 import { YamlAdapter } from "../formats/yaml";
 import { SchemaWorkerClient } from "../generic-schema/client";
+import { fetchRemoteSchemaText, normalizeSchemaUrl } from "../generic-schema/fetch-url";
 import { schemaPropertyNames, translateSchemaProblem } from "../generic-schema/diagnostics";
 import { loadSchemaStoreCatalog, SCHEMASTORE_SITE_URL, type CatalogEntry } from "../generic-schema/schemastore";
 import type { SchemaNotice } from "../generic-schema/types";
@@ -353,12 +354,9 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
     setSchemaBusy(true);
     setSchemaFeedback("Fetching schema...");
     try {
-      const url = validSchemaUrl(schemaUrl.trim());
-      const response = await fetch(url, { cache: "no-cache" });
-      if (!response.ok) throw new Error(`Schema returned HTTP ${response.status}.`);
-      const finalUrl = validSchemaUrl(response.url || url.href);
-      const text = await response.text();
-      await activateCustomSchema({ fileName: finalUrl.pathname.split("/").at(-1) ?? "schema.json", schema: parseSchemaText(text, finalUrl.pathname, engine) });
+      const url = normalizeSchemaUrl(validSchemaUrl(schemaUrl.trim()));
+      const text = await fetchRemoteSchemaText(url);
+      await activateCustomSchema({ fileName: url.pathname.split("/").at(-1) ?? "schema.json", schema: parseSchemaText(text, url.pathname, engine) });
     } catch (cause) { setSchemaFeedback(cause instanceof Error ? cause.message : String(cause)); setSchemaBusy(false); }
   };
   const receiveSchemaFile = (event: DragEvent<HTMLElement> | ClipboardEvent<HTMLElement>) => {

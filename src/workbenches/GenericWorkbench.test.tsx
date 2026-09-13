@@ -245,6 +245,44 @@ describe("GenericWorkbench", () => {
     expect(await screen.findByText("api.yaml")).toBeVisible();
   });
 
+  it("loads a schema through the relay when the direct fetch is CORS-blocked", async () => {
+    const relayed = "Title: \n\nURL Source: https://blocked.test/catalog.json\n\nMarkdown Content:\n{\"type\": \"object\"}\n";
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).startsWith("https://r.jina.ai/")) return new Response(relayed, { status: 200 });
+      throw new TypeError("Failed to fetch");
+    }));
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.click(screen.getByRole("button", { name: /fetch url/i }));
+    await userEvent.type(screen.getByLabelText(/https schema url/i), "https://blocked.test/catalog.json");
+    await userEvent.click(screen.getByRole("button", { name: /fetch schema/i }));
+    expect(await screen.findByText("catalog.json")).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("rewrites json.schemastore.org to the CORS-enabled host before fetching", async () => {
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({ type: "object" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.click(screen.getByRole("button", { name: /fetch url/i }));
+    await userEvent.type(screen.getByLabelText(/https schema url/i), "https://json.schemastore.org/cargo.json");
+    await userEvent.click(screen.getByRole("button", { name: /fetch schema/i }));
+    expect(await screen.findByText("cargo.json")).toBeVisible();
+    const requested = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(requested.some((url) => url.includes("www.schemastore.org/cargo.json"))).toBe(true);
+    expect(requested.some((url) => url.includes("json.schemastore.org"))).toBe(false);
+  });
+
+  it("explains CORS failures when both the direct fetch and the relay fail", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.click(screen.getByRole("button", { name: /fetch url/i }));
+    await userEvent.type(screen.getByLabelText(/https schema url/i), "https://blocked.test/schema.json");
+    await userEvent.click(screen.getByRole("button", { name: /fetch schema/i }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/could not fetch https:\/\/blocked\.test\/schema\.json/i);
+    expect(alert).toHaveTextContent(/paste/i);
+  });
+
   it("accepts a dropped schema file and a clipboard-pasted schema file", async () => {
     const { container, unmount } = render(<GenericWorkbench engine={engine} manifest={manifest} />);
     const dropZone = container.querySelector(".schema-loader");
