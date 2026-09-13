@@ -169,16 +169,31 @@ export function schemaDialectLabel(dialect: ResolvedSchemaDialect): string {
 }
 
 const DIALECT_URIS: Readonly<Record<ResolvedSchemaDialect, readonly string[]>> = {
-  "draft-04": ["http://json-schema.org/draft-04/schema#"],
-  "draft-06": ["http://json-schema.org/draft-06/schema#"],
-  "draft-07": ["http://json-schema.org/draft-07/schema#"],
-  "draft-2019-09": ["https://json-schema.org/draft/2019-09/schema"],
-  "draft-2020-12": ["https://json-schema.org/draft/2020-12/schema"],
+  "draft-04": [
+    "http://json-schema.org/draft-04/schema#",
+    "http://json-schema.org/draft-04/schema",
+    "https://json-schema.org/draft-04/schema#",
+    "https://json-schema.org/draft-04/schema",
+  ],
+  "draft-06": [
+    "http://json-schema.org/draft-06/schema#",
+    "http://json-schema.org/draft-06/schema",
+    "https://json-schema.org/draft-06/schema#",
+    "https://json-schema.org/draft-06/schema",
+  ],
+  "draft-07": [
+    "http://json-schema.org/draft-07/schema#",
+    "http://json-schema.org/draft-07/schema",
+    "https://json-schema.org/draft-07/schema#",
+    "https://json-schema.org/draft-07/schema",
+  ],
+  "draft-2019-09": ["https://json-schema.org/draft/2019-09/schema", "http://json-schema.org/draft/2019-09/schema"],
+  "draft-2020-12": ["https://json-schema.org/draft/2020-12/schema", "http://json-schema.org/draft/2020-12/schema"],
 };
 
 /** Dialect declared by a `$schema` URI, or `undefined` when unrecognized. */
 export function dialectForSchemaUri(uri: string): ResolvedSchemaDialect | undefined {
-  const value = uri.trim().toLowerCase();
+  const value = uri.trim().toLowerCase().replace(/#$/, "");
   for (const [dialect, uris] of Object.entries(DIALECT_URIS) as [ResolvedSchemaDialect, readonly string[]][]) {
     if (uris.some((known) => value === known || value === known.replace(/#$/, ""))) return dialect;
   }

@@ -996,6 +996,9 @@ h1 {
 .schema-summary small { color: var(--muted); font-size: .7rem; font-weight: 750; text-transform: uppercase; }
 .schema-summary strong { overflow: hidden; font-size: .84rem; text-overflow: ellipsis; white-space: nowrap; }
 .schema-summary em { flex: 0 0 auto; color: var(--muted); font-size: .72rem; font-style: normal; }
+.schema-notices { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.schema-notice { display: flex; align-items: center; gap: 6px; color: var(--warning, #b8860b); font-size: .78rem; }
+.schema-notice svg { flex: 0 0 auto; }
 .custom-schema-controls { margin-top: 12px; }
 .schema-choice-buttons { flex-wrap: wrap; }
 .schema-input-reveal { align-items: stretch; flex-direction: column; margin-top: 12px; }

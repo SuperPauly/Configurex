@@ -3,7 +3,9 @@ import type AjvCore from "ajv/dist/core";
 import Ajv2019 from "ajv/dist/2019";
 import Ajv2020 from "ajv/dist/2020";
 import AjvDraft04 from "ajv-draft-04";
+import addErrors from "ajv-errors";
 import addFormats from "ajv-formats";
+import addKeywords from "ajv-keywords";
 import draft6MetaSchema from "ajv/dist/refs/json-schema-draft-06.json";
 
 import { prepareSchemas, scanReferences } from "./references";
@@ -146,42 +148,80 @@ function decideDialect(schema: unknown, settings: SchemaValidationSettings): Dia
   };
 }
 
-function ajvForDialect(dialect: ResolvedSchemaDialect, options: SchemaCompilerOptions): AjvCore {
+/**
+ * Consumer-mode AJV relaxations applied when Strict authoring checks reject a
+ * document that is spec-valid for validation purposes (unknown vendor
+ * keywords, legacy tuples, overlapping patternProperties). Strict findings are
+ * then surfaced as warnings instead of blocking the load.
+ */
+interface ConsumerRelaxations {
+  readonly strict: boolean;
+  readonly strictTuples: boolean;
+  readonly strictRequired: boolean;
+  readonly allowMatchingProperties: boolean;
+}
+
+const RELAXED_CONSUMER_MODE: ConsumerRelaxations = { strict: false, strictTuples: false, strictRequired: false, allowMatchingProperties: true };
+
+function ajvForDialect(
+  dialect: ResolvedSchemaDialect,
+  options: SchemaCompilerOptions,
+  relaxations: ConsumerRelaxations = { strict: options.strict, strictTuples: options.strictTuples, strictRequired: options.strictRequired, allowMatchingProperties: false },
+  skipMetaValidation = false,
+): AjvCore {
   const ajvOptions = {
     allErrors: options.allErrors,
-    strict: options.strict,
-    strictTuples: options.strictTuples,
-    strictRequired: options.strictRequired,
+    strict: relaxations.strict,
+    strictTuples: relaxations.strictTuples,
+    strictRequired: relaxations.strictRequired,
     verbose: options.verbose,
     validateFormats: options.validateFormats,
+    allowUnionTypes: true,
+    allowMatchingProperties: relaxations.allowMatchingProperties,
+    ...(skipMetaValidation ? { validateSchema: false as const } : {}),
   };
+  let ajv: AjvCore;
   switch (dialect) {
-    case "draft-04": return new AjvDraft04(ajvOptions) as AjvCore;
+    case "draft-04": ajv = new AjvDraft04(ajvOptions) as AjvCore; break;
     case "draft-06": {
       // AJV 8 validates draft-06 with the draft-07 class plus the draft-06 meta-schema.
-      const ajv = new Ajv(ajvOptions);
+      ajv = new Ajv(ajvOptions);
       ajv.addMetaSchema(draft6MetaSchema);
-      return ajv;
+      break;
     }
-    case "draft-07": return new Ajv(ajvOptions);
-    case "draft-2019-09": return new Ajv2019(ajvOptions);
-    case "draft-2020-12": return new Ajv2020(ajvOptions);
+    case "draft-07": ajv = new Ajv(ajvOptions); break;
+    case "draft-2019-09": ajv = new Ajv2019(ajvOptions); break;
+    case "draft-2020-12": ajv = new Ajv2020(ajvOptions); break;
   }
+  addKeywords(ajv, ["regexp", "range", "exclusiveRange", "uniqueItemProperties"]);
+  if (options.allErrors) addErrors(ajv);
+  return ajv;
 }
 
 /**
  * Removes a `$schema` URI that does not name the effective dialect so AJV does
- * not try to resolve a foreign meta-schema. Applied only to the compilation
- * copy (references are already rewritten onto new objects by `prepareSchemas`),
- * never to the user's uploaded schema source.
+ * not try to resolve a foreign meta-schema. For Draft 4 the marker is removed
+ * even when it matches: ajv-draft-04 only registers the http form of the meta
+ * URI, so schemas declaring the equivalent https form (common in SchemaStore)
+ * fail to resolve unless the declaration is dropped from the compilation copy.
+ * Applied only to that copy (already cloned by `prepareSchemas`), never to the
+ * user's uploaded schema source.
  */
 function stripForeignSchemaMarker(schema: unknown, dialect: ResolvedSchemaDialect): unknown {
   const object = schemaObject(schema);
   if (!object) return schema;
   const uri = declaredSchemaUri(object);
-  if (uri === undefined || dialectForSchemaUri(uri) === dialect) return schema;
-  const rest = Object.fromEntries(Object.entries(object).filter(([key]) => key !== "$schema"));
-  return rest;
+  if (uri === undefined) return schema;
+  const declared = dialectForSchemaUri(uri);
+  // Draft 4 always drops the marker: ajv-draft-04 only registers the http form
+  // of the meta URI, so the equivalent https form (common in SchemaStore)
+  // fails to resolve unless the declaration is dropped from the compile copy.
+  if (declared === dialect && dialect !== "draft-04") return schema;
+  return stripSchemaKey(object);
+}
+
+function stripSchemaKey(object: JsonObject): JsonObject {
+  return Object.fromEntries(Object.entries(object).filter(([key]) => key !== "$schema"));
 }
 
 function serializeErrors(errors: AjvCore["errors"]): SchemaProblem[] {
@@ -224,8 +264,88 @@ interface CompilationResult {
   readonly validate?: ReturnType<AjvCore["compile"]> | undefined;
 }
 
+/** Root-level keywords proving a document intends to be a JSON Schema. */
+const SCHEMA_VOCABULARY_KEYS = new Set([
+  "type", "properties", "items", "required", "enum", "const", "allOf", "anyOf", "oneOf", "not",
+  "$ref", "$defs", "definitions", "patternProperties", "additionalProperties", "propertyNames",
+  "format", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "minLength", "maxLength",
+  "pattern", "minItems", "maxItems", "uniqueItems", "minProperties", "maxProperties", "multipleOf",
+  "dependencies", "dependentRequired", "dependentSchemas", "if", "then", "else", "contains",
+  "minContains", "maxContains", "prefixItems", "unevaluatedProperties", "unevaluatedItems",
+  "$anchor", "$comment", "examples",
+]);
+
+function isStrictModeError(error: unknown): boolean {
+  return error instanceof Error && /^strict mode:/.test(error.message);
+}
+
+function tupleHint(message: string): string {
+  return /"(?:items|prefixItems)" is \d+-tuple/.test(message)
+    ? " This schema uses positional tuple items without declaring an intended array length; consider `minItems`/`maxItems` or Draft 2020-12 `prefixItems`."
+    : "";
+}
+
+function usesSchemaVocabulary(schema: unknown): boolean {
+  const object = schemaObject(schema);
+  if (!object) return false;
+  return Object.keys(object).some((key) => SCHEMA_VOCABULARY_KEYS.has(key));
+}
+
+function isCompilablePattern(pattern: string): boolean {
+  try {
+    new RegExp(pattern, "u");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function replaceUnresolvableRef(schema: unknown, reference: string): unknown {
+  if (Array.isArray(schema)) return schema.map((item) => replaceUnresolvableRef(item, reference));
+  const object = schemaObject(schema);
+  if (!object) return schema;
+  // The whole subschema becomes permissive `true`, not `$ref: true` (which is
+  // itself an invalid $ref value); draft-07 ignores $ref siblings anyway.
+  if (object.$ref === reference) return true;
+  const clone: JsonObject = {};
+  for (const [key, value] of Object.entries(object)) clone[key] = replaceUnresolvableRef(value, reference);
+  return clone;
+}
+
+/**
+ * Published schemas sometimes carry `pattern`/`patternProperties` values with
+ * escapes that are invalid in ECMAScript regexes (double-escaped classes,
+ * `\_`, trailing regex-literal slashes). AJV throws on such patterns, so they
+ * are dropped from the compilation copy and reported as a warning; every
+ * other constraint keeps validating.
+ */
+function stripInvalidPatterns(schema: unknown, removed: string[]): unknown {
+  if (Array.isArray(schema)) return schema.map((item) => stripInvalidPatterns(item, removed));
+  const object = schemaObject(schema);
+  if (!object) return schema;
+  const clone: JsonObject = {};
+  for (const [key, value] of Object.entries(object)) {
+    if (key === "pattern" && typeof value === "string" && !isCompilablePattern(value)) {
+      removed.push(value);
+      continue;
+    }
+    if (key === "patternProperties" && value && typeof value === "object" && !Array.isArray(value)) {
+      const kept: JsonObject = {};
+      for (const [pattern, subschema] of Object.entries(value as JsonObject)) {
+        if (isCompilablePattern(pattern)) kept[pattern] = subschema;
+        else removed.push(pattern);
+      }
+      clone[key] = stripInvalidPatterns(kept, removed);
+      continue;
+    }
+    clone[key] = stripInvalidPatterns(value, removed);
+  }
+  return clone;
+}
+
 function compileSchemaRequest(request: CompileRequest): CompilationResult {
   const notices: SchemaNotice[] = [];
+  let attemptNotices: SchemaNotice[] = [];
   try {
     const settings = parseSchemaValidationSettings(request.settings);
     const referenceMode = request.referenceMode ?? settings.referenceMode;
@@ -275,21 +395,134 @@ function compileSchemaRequest(request: CompileRequest): CompilationResult {
       return { requestId: request.requestId, valid: false, notices, problems: decision.unsupported ? [decision.unsupported] : [], ...(interpretation ? { interpretation } : {}) };
     }
     const compilerOptions = compilerOptionsFor(settings, decision.dialect);
-    const ajv = ajvForDialect(decision.dialect, compilerOptions);
-    notices.push(...addSupportedFormats(ajv, compilerOptions, [request.primary.schema, ...request.dependencies.map((dependency) => dependency.schema)]));
-    const prepared = prepareSchemas(request.primary.schema, request.primary.fileName, request.dependencies);
+    let prepared = prepareSchemas(request.primary.schema, request.primary.fileName, request.dependencies);
+    const removedPatterns: string[] = [];
+    const sanitizedPrimary = stripInvalidPatterns(prepared.primary, removedPatterns);
+    const sanitizedDependencies = prepared.dependencies.map((dependency) => ({ ...dependency, schema: stripInvalidPatterns(dependency.schema, removedPatterns) }));
+    if (removedPatterns.length) prepared = { primary: sanitizedPrimary, dependencies: sanitizedDependencies };
+    if (removedPatterns.length) {
+      notices.push({
+        ruleId: "schema/invalid-pattern",
+        severity: "warning",
+        message: `${removedPatterns.length} invalid regular expression${removedPatterns.length === 1 ? " was" : "s were"} ignored: ${removedPatterns.slice(0, 3).map((pattern) => `\`${pattern}\``).join(", ")}${removedPatterns.length > 3 ? ", …" : ""}`,
+        explanation: "These pattern values are not valid ECMAScript regular expressions, so the constraints were dropped; all other validation still applies.",
+      });
+    }
     const draft04 = decision.dialect === "draft-04";
-    for (const dependency of prepared.dependencies) ajv.addSchema(stripForeignSchemaMarker(draft04 ? normalizeDraft04Identifier(dependency.schema) : dependency.schema, decision.dialect) as AnySchema);
-    const primary = stripForeignSchemaMarker(draft04 ? normalizeDraft04Identifier(prepared.primary) : prepared.primary, decision.dialect) as AnySchema;
-    if (!ajv.validateSchema(primary)) return { requestId: request.requestId, valid: false, notices, problems: serializeErrors(ajv.errors).map((problem) => schemaProblem(problem, "Uploaded JSON Schema is invalid")), interpretation };
-    const validate = ajv.compile(primary);
-    return { requestId: request.requestId, valid: true, notices, problems: [], interpretation, validate };
+    const dialect = decision.dialect;
+
+    const attempt = (relaxed: boolean, skipMetaValidation = false): { validate?: ReturnType<AjvCore["compile"]>; problems?: SchemaProblem[] } => {
+      const ajv = ajvForDialect(dialect, compilerOptions, relaxed ? RELAXED_CONSUMER_MODE : undefined, skipMetaValidation);
+      attemptNotices = addSupportedFormats(ajv, compilerOptions, [request.primary.schema, ...request.dependencies.map((dependency) => dependency.schema)]);
+      for (const dependency of prepared.dependencies) ajv.addSchema(stripForeignSchemaMarker(draft04 ? normalizeDraft04Identifier(dependency.schema) : dependency.schema, dialect) as AnySchema);
+      const primary = stripForeignSchemaMarker(draft04 ? normalizeDraft04Identifier(prepared.primary) : prepared.primary, dialect) as AnySchema;
+      if (!skipMetaValidation && !ajv.validateSchema(primary)) return { problems: serializeErrors(ajv.errors).map((problem) => schemaProblem(problem, "Uploaded JSON Schema is invalid")) };
+      return { validate: ajv.compile(primary) };
+    };
+
+    // A document with no `$schema` and no schema vocabulary is a plain data
+    // file (for example an API model catalog); strict keyword checks cannot
+    // apply, so it compiles directly in consumer mode with an explicit notice.
+    if (declaredUri === undefined && !usesSchemaVocabulary(request.primary.schema)) {
+      notices.push({
+        ruleId: "schema/plain-document",
+        severity: "warning",
+        message: "This document declares no `$schema` and uses no JSON Schema keywords, so it compiles to a schema that accepts any JSON.",
+        explanation: "Configurex loaded it without strict keyword checks. Add a `$schema` URI and schema keywords such as `type` or `properties` if this file is meant to constrain documents.",
+      });
+      const compiled = attempt(true);
+      if (compiled.problems) return { requestId: request.requestId, valid: false, notices: [...notices, ...attemptNotices], problems: compiled.problems, interpretation };
+      return { requestId: request.requestId, valid: true, notices: [...notices, ...attemptNotices], problems: [], interpretation, validate: compiled.validate };
+    }
+
+    // Retry ladder: spec-valid schemas routinely trip AJV Strict authoring
+    // checks (unknown vendor keywords, legacy tuples) and published schemas
+    // sometimes $ref definitions that do not exist. Each round either compiles,
+    // flips one switch to consumer mode, or neutralizes one broken reference,
+    // and the affected constructs are reported as warnings.
+    let consumerMode = false;
+    let strictNoticeAdded = false;
+    let skipMetaValidation = false;
+    let metaProblems: SchemaProblem[] | undefined;
+    let lastError: string | undefined;
+    const droppedReferences: string[] = [];
+    for (let round = 0; round < 40; round++) {
+      try {
+        const compiled = attempt(consumerMode, skipMetaValidation);
+        if (compiled.problems) {
+          // Schemas that embed a dialect meta-schema (or describe JSON-Schema-like
+          // documents with a `$ref` data property) violate the meta-schema while
+          // still compiling correctly; retry once without meta validation before
+          // declaring the document invalid.
+          if (!skipMetaValidation) {
+            skipMetaValidation = true;
+            metaProblems = compiled.problems;
+            continue;
+          }
+          return { requestId: request.requestId, valid: false, notices: [...notices, ...attemptNotices], problems: compiled.problems, interpretation };
+        }
+        if (droppedReferences.length) {
+          notices.push({
+            ruleId: "schema/unresolvable-ref",
+            severity: "warning",
+            message: `${droppedReferences.length} unresolvable $ref${droppedReferences.length === 1 ? "" : "s"} were treated as permissive: ${droppedReferences.slice(0, 3).map((reference) => `\`${reference}\``).join(", ")}${droppedReferences.length > 3 ? ", …" : ""}`,
+            explanation: "These references point at definitions that do not exist in the schema, so the affected locations accept any value; all other validation still applies.",
+          });
+          droppedReferences.length = 0;
+        }
+        if (metaProblems) {
+          notices.push({
+            ruleId: "schema/meta-nonconformant",
+            severity: "warning",
+            message: `The schema does not fully conform to its meta-schema and was loaded best-effort: ${metaProblems[0]?.message ?? "meta-schema validation failed"}`,
+            explanation: "Compilation and validation still ran; treat results for the affected constructs as best-effort. Common causes are schemas that embed a copy of a dialect meta-schema or define a data property named `$ref`.",
+          });
+          metaProblems = undefined;
+        }
+        return { requestId: request.requestId, valid: true, notices: [...notices, ...attemptNotices], problems: [], interpretation, validate: compiled.validate };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message === lastError) throw error;
+        lastError = message;
+        if (isStrictModeError(error)) {
+          if (!strictNoticeAdded) {
+            strictNoticeAdded = true;
+            notices.push({
+              ruleId: "schema/strict-relaxed",
+              severity: "warning",
+              message: `Strict schema checks were relaxed to load this document: ${message}`,
+              explanation: `The schema compiles and validates correctly, but it does not satisfy Strict authoring checks.${tupleHint(message)} Switch to the Compatible or Permissive preset to silence this warning.`,
+            });
+          }
+          consumerMode = true;
+          continue;
+        }
+        const unresolvable = /(?:can't resolve reference|can't resolve ref) (.+?) from id /.exec(message)?.[1];
+        if (unresolvable && !droppedReferences.includes(unresolvable) && droppedReferences.length < 20) {
+          droppedReferences.push(unresolvable);
+          prepared = {
+            primary: replaceUnresolvableRef(prepared.primary, unresolvable),
+            dependencies: prepared.dependencies.map((dependency) => ({ ...dependency, schema: replaceUnresolvableRef(dependency.schema, unresolvable) })),
+          };
+          continue;
+        }
+        // The meta-validation skip did not rescue the schema: report the
+        // original meta-schema findings instead of the raw compiler error.
+        if (metaProblems) {
+          const problems = metaProblems;
+          metaProblems = undefined;
+          return { requestId: request.requestId, valid: false, notices: [...notices, ...attemptNotices], problems, interpretation };
+        }
+        throw error;
+      }
+    }
+    throw new Error("JSON Schema could not be compiled after exhausting compatibility retries.");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
       requestId: request.requestId,
       valid: false,
-      notices,
+      notices: [...notices, ...attemptNotices],
       problems: [schemaProblem({
         keyword: "schema-compile",
         instancePath: "",

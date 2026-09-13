@@ -22,6 +22,7 @@ import { YamlAdapter } from "../formats/yaml";
 import { SchemaWorkerClient } from "../generic-schema/client";
 import { schemaPropertyNames, translateSchemaProblem } from "../generic-schema/diagnostics";
 import { loadSchemaStoreCatalog, SCHEMASTORE_SITE_URL, type CatalogEntry } from "../generic-schema/schemastore";
+import type { SchemaNotice } from "../generic-schema/types";
 import {
   loadSchemaValidationSettings,
   reducedValidationNotice,
@@ -129,6 +130,7 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
   const [schemaSettings, setSchemaSettings] = useState<SchemaValidationSettings>(() => loadSchemaValidationSettings());
   const [schemaEditorOpen, setSchemaEditorOpen] = useState(false);
   const [interpretation, setInterpretation] = useState<SchemaInterpretation | undefined>(undefined);
+  const [schemaNotices, setSchemaNotices] = useState<readonly SchemaNotice[]>([]);
   const [lintSettings, setLintSettings] = useState<LintSettings>(() => loadLintSettings());
   const [status, setStatus] = useState<Status>({ type: "idle", message: "Choose or add a JSON Schema to begin." });
   const [revision, setRevision] = useState(0);
@@ -178,6 +180,7 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
       if (run !== schemaLoadSequence.current) return;
       compiledSchema.current = { primary: candidate, dependencies: [], settings: settingsRef.current };
       setInterpretation(checked.interpretation);
+      setSchemaNotices(checked.notices);
       setTrackedPrimary(candidate);
       setLoaderOpen(false);
       setStatus({ type: "idle", message: `${selectedVersion.label} loaded. Press Validate to check this configuration.` });
@@ -236,6 +239,7 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
     const checked = await schemaClient.preflight({ primary: active, dependencies, settings: effective });
     compiledSchema.current = { primary: active, dependencies, settings: effective };
     setInterpretation(checked.interpretation);
+    setSchemaNotices(checked.valid ? checked.notices : []);
     if (!checked.valid) {
       setStatus({ type: "error", message: checked.problems[0]?.message ?? "The schema is invalid under these settings." });
     }
@@ -294,6 +298,7 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
       schemaLoadSequence.current += 1;
       compiledSchema.current = { primary: candidate, dependencies, settings: schemaSettings };
       setInterpretation(checked.interpretation);
+      setSchemaNotices(checked.notices);
       setProgramId("none");
       setTrackedPrimary(undefined);
       setCustomPrimary(candidate);
@@ -325,6 +330,7 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
     schemaLoadSequence.current += 1;
     compiledSchema.current = { primary: candidate, dependencies, settings: schemaSettings };
     setInterpretation(checked.interpretation);
+    setSchemaNotices(checked.notices);
     setProgramId("none");
     setTrackedPrimary(undefined);
     setCustomPrimary(candidate);
@@ -409,6 +415,9 @@ export function GenericWorkbench({ engine, manifest, onThemeChange, themeId: con
       {!loaderOpen && primary ? <div className="schema-summary">
         <span><Check aria-hidden="true" size={17} /><small>Schema</small><strong>{program?.name ?? customPrimary?.fileName}</strong>{selectedVersion ? <em>{selectedVersion.label}</em> : null}</span>
         {interpretation?.effectiveDialect ? <small className="schema-summary-dialect">{schemaDialectLabel(interpretation.effectiveDialect as ResolvedSchemaDialect)}{interpretation.dialectSource === "manual-override" ? " (manual)" : interpretation.dialectSource === "auto-fallback" ? " (auto)" : ""}</small> : null}
+        {schemaNotices.some((notice) => notice.severity === "warning" || notice.severity === "error") ? <ul aria-label="Schema load notices" className="schema-notices">
+          {schemaNotices.filter((notice) => notice.severity === "warning" || notice.severity === "error").map((notice) => <li key={notice.ruleId + notice.message} className={`schema-notice schema-notice-${notice.severity}`}><TriangleAlert aria-hidden="true" size={14} />{notice.message}</li>)}
+        </ul> : null}
         <div className="schema-summary-actions"><button className="button button-quiet" onClick={() => setSchemaEditorOpen(true)} type="button"><FilePenLine aria-hidden="true" size={16} /> Edit schema</button><button className="button button-quiet" onClick={() => setLoaderOpen(true)} type="button">Change</button></div>
       </div> : <>
         <div className="schema-loader-heading"><div><h2>Load schema</h2><p>Choose a ready-made schema or add your own.</p></div>{primary ? <button aria-label="Close schema loader" className="icon-button" onClick={() => setLoaderOpen(false)} type="button"><X aria-hidden="true" size={18} /></button> : null}</div>

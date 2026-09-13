@@ -319,11 +319,12 @@ describe("schema validation settings UI", () => {
     expect(screen.getByText(/advanced options/i).closest("details")).not.toHaveAttribute("open");
   });
 
-  it("rejects the legacy tuple schema under the default Strict preset with the tuple hint", async () => {
+  it("loads the legacy tuple schema under the default Strict preset with a relaxed-checks warning and tuple hint", async () => {
     render(<GenericWorkbench engine={engine} manifest={manifest} />);
     await userEvent.upload(screen.getByLabelText(/choose schema file/i), new File([LEGACY_TUPLE], "tuple.schema.json", { type: "application/json" }));
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(/is 2-tuple/i);
+    expect(await screen.findByText("tuple.schema.json")).toBeVisible();
+    const warning = await screen.findByText(/strict schema checks were relaxed/i);
+    expect(warning).toHaveTextContent(/is 2-tuple/i);
   });
 
   it("uses the selected settings for the first preflight: Compatible accepts a legacy tuple schema", async () => {
@@ -403,7 +404,7 @@ describe("schema validation settings UI", () => {
     await userEvent.click(screen.getByRole("button", { name: /schema settings/i }));
     const drawer = screen.getByRole("complementary", { name: /schema validation settings/i });
     await userEvent.selectOptions(within(drawer).getByLabelText(/validation preset/i), "strict");
-    expect(await screen.findByRole("alert")).toHaveTextContent(/is 2-tuple/i);
+    expect(await screen.findByText(/strict schema checks were relaxed/i)).toHaveTextContent(/is 2-tuple/i);
   });
 
   it("resets to Strict defaults and re-preflights from the settings drawer", async () => {
@@ -418,7 +419,7 @@ describe("schema validation settings UI", () => {
     await userEvent.click(within(drawer).getByRole("button", { name: /reset to strict defaults/i }));
     expect(within(drawer).getByLabelText(/validation preset/i)).toHaveValue("strict");
     expect(within(drawer).queryByText(/compatible validation is active/i)).not.toBeInTheDocument();
-    expect(await screen.findByRole("alert")).toHaveTextContent(/is 2-tuple/i);
+    expect(await screen.findByText(/strict schema checks were relaxed/i)).toHaveTextContent(/is 2-tuple/i);
     expect(localStorage.getItem("codex-config-checker.schema-validation-settings")).toContain('"preset":"strict"');
   });
 

@@ -8,6 +8,7 @@ export default defineConfig(({ command }) => ({
     environment: "jsdom",
     globals: true,
     include: ["src/**/*.test.{ts,tsx}"],
+    server: { deps: { inline: ["codemirror-json-schema"] } },
     setupFiles: "./vitest.setup.ts",
   },
 }));

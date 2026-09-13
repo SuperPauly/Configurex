@@ -92,6 +92,40 @@ describe("validateSchemaRequest", () => {
     expect(invalid.problems[0]?.message).toMatch(/schema.*invalid|type/i);
   });
 
+  it("uses schema-defined error messages", () => {
+    const result = validateSchemaRequest({
+      requestId: 5,
+      value: 42,
+      primary: {
+        fileName: "schema.json",
+        schema: {
+          $schema: "http://json-schema.org/draft-07/schema#",
+          type: "string",
+          errorMessage: "Enter a text value.",
+        },
+      },
+      dependencies: [],
+      settings: strict,
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.problems).toHaveLength(1);
+    expect(result.problems[0]?.message).toBe("Enter a text value.");
+  });
+
+  it("supports safe ajv-keywords string constraints", () => {
+    const schema = {
+      $schema: "http://json-schema.org/draft-07/schema#",
+      type: "string",
+      regexp: "/^[A-Z]{3}$/",
+    };
+
+    expect(validateSchemaRequest({ requestId: 6, value: "ABC", primary: { fileName: "schema.json", schema }, dependencies: [], settings: strict }).valid).toBe(true);
+    const invalid = validateSchemaRequest({ requestId: 7, value: "abc", primary: { fileName: "schema.json", schema }, dependencies: [], settings: strict });
+    expect(invalid.valid).toBe(false);
+    expect(invalid.problems[0]?.keyword).toBe("regexp");
+  });
+
   it("validates through uploaded local dependencies and never fetches them", () => {
     const result = validateSchemaRequest({
       requestId: 5,
@@ -234,13 +268,16 @@ describe("validateSchemaRequest", () => {
 });
 
 describe("tuple strictness presets", () => {
-  it("rejects a legacy Draft 7 tuple schema in Strict mode with a targeted hint", () => {
+  it("loads a legacy Draft 7 tuple schema in Strict mode with a relaxed-checks warning and tuple hint", () => {
     const result = preflightSchemaRequest({ kind: "preflight", requestId: 20, primary: { fileName: "tuple.schema.json", schema: LEGACY_TUPLE_SCHEMA }, dependencies: [], settings: strict });
-    expect(result.valid).toBe(false);
-    expect(result.problems[0]?.keyword).toBe("schema-compile");
-    expect(result.problems[0]?.message).toContain(`"items" is 2-tuple`);
-    expect(result.problems[0]?.params.hint).toContain("prefixItems");
-    expect(result.problems[0]?.params.hint).toContain("Compatible validation");
+    expect(result.valid).toBe(true);
+    expect(result.problems).toEqual([]);
+    expect(result.notices).toContainEqual(expect.objectContaining({ ruleId: "schema/strict-relaxed", severity: "warning" }));
+    const relaxed = result.notices.find((notice) => notice.ruleId === "schema/strict-relaxed");
+    expect(relaxed?.message).toContain(`"items" is 2-tuple`);
+    expect(relaxed?.explanation).toContain("prefixItems");
+    const invalid = validateSchemaRequest({ requestId: 28, value: ["a", "b"], primary: { fileName: "tuple.schema.json", schema: LEGACY_TUPLE_SCHEMA }, dependencies: [], settings: strict });
+    expect(invalid.valid).toBe(false);
   });
 
   it("compiles the same legacy tuple schema in Compatible mode", () => {
@@ -396,14 +433,94 @@ describe("compile cache", () => {
   });
 });
 
+describe("real-world schema compatibility", () => {
+  it("recognizes the https form of the Draft 4 meta URI", () => {
+    const schema = { $schema: "https://json-schema.org/draft-04/schema#", type: "object" };
+    const result = preflightSchemaRequest({ kind: "preflight", requestId: 70, primary: { fileName: "schema.json", schema }, dependencies: [], settings: strict });
+    expect(result.valid).toBe(true);
+    expect(result.interpretation).toMatchObject({ effectiveDialect: "draft-04", dialectSource: "declared" });
+  });
+
+  it("loads a plain data document without $schema or schema keywords as a permissive schema", () => {
+    const schema = { version: 1, updated_at: "2026-09-10T16:09:08Z", providers: { openrouter: { models: [{ id: "anthropic/claude-fable-5", description: "" }] } } };
+    const result = preflightSchemaRequest({ kind: "preflight", requestId: 71, primary: { fileName: "model-catalog.json", schema }, dependencies: [], settings: strict });
+    expect(result.valid).toBe(true);
+    expect(result.problems).toEqual([]);
+    expect(result.notices).toContainEqual(expect.objectContaining({ ruleId: "schema/plain-document", severity: "warning" }));
+    const validated = validateSchemaRequest({ requestId: 72, value: { anything: true }, primary: { fileName: "model-catalog.json", schema }, dependencies: [], settings: strict });
+    expect(validated.valid).toBe(true);
+  });
+
+  it("loads a schema with unknown vendor keywords and warns about relaxed strict checks", () => {
+    const schema = { $schema: "http://json-schema.org/draft-07/schema#", type: "object", properties: { name: { type: "string", markdownDescription: "Display name" } } };
+    const result = preflightSchemaRequest({ kind: "preflight", requestId: 73, primary: { fileName: "schema.json", schema }, dependencies: [], settings: strict });
+    expect(result.valid).toBe(true);
+    expect(result.notices).toContainEqual(expect.objectContaining({ ruleId: "schema/strict-relaxed", severity: "warning" }));
+    expect(result.notices.find((notice) => notice.ruleId === "schema/strict-relaxed")?.message).toContain("markdownDescription");
+    const invalid = validateSchemaRequest({ requestId: 74, value: { name: 42 }, primary: { fileName: "schema.json", schema }, dependencies: [], settings: strict });
+    expect(invalid.valid).toBe(false);
+    expect(invalid.problems[0]?.keyword).toBe("type");
+  });
+
+  it("compiles spec-legal union types without relaxing strict checks", () => {
+    const schema = { $schema: "https://json-schema.org/draft/2020-12/schema", type: ["string", "null"] };
+    const result = preflightSchemaRequest({ kind: "preflight", requestId: 75, primary: { fileName: "schema.json", schema }, dependencies: [], settings: strict });
+    expect(result.valid).toBe(true);
+    expect(result.notices).not.toContainEqual(expect.objectContaining({ ruleId: "schema/strict-relaxed" }));
+  });
+
+  it("still rejects genuinely invalid schemas instead of retrying them", () => {
+    const schema = { $schema: "http://json-schema.org/draft-07/schema#", type: 42 };
+    const result = preflightSchemaRequest({ kind: "preflight", requestId: 76, primary: { fileName: "schema.json", schema }, dependencies: [], settings: strict });
+    expect(result.valid).toBe(false);
+    expect(result.problems[0]?.keyword).not.toBe("schema/strict-relaxed");
+  });
+
+  it("drops pointer-style fragment $ids that collide with their own pointer location", () => {
+    const schema = {
+      $schema: "http://json-schema.org/draft-07/schema#",
+      $id: "https://example.test/schema.json",
+      type: "object",
+      definitions: { language: { type: "string" } },
+      properties: {
+        promptsLanguage: { $id: "#/properties/promptsLanguage", type: "string" },
+        target: { $ref: "#/definitions/language" },
+      },
+    };
+    const result = preflightSchemaRequest({ kind: "preflight", requestId: 77, primary: { fileName: "schema.json", schema }, dependencies: [], settings: strict });
+    expect(result.valid).toBe(true);
+    const validated = validateSchemaRequest({ requestId: 78, value: { target: 42 }, primary: { fileName: "schema.json", schema }, dependencies: [], settings: strict });
+    expect(validated.valid).toBe(false);
+  });
+
+  it("keeps name-anchor fragment $ids that $refs target", () => {
+    const schema = {
+      $schema: "http://json-schema.org/draft-07/schema#",
+      $id: "https://example.test/oscal.json",
+      type: "object",
+      definitions: {
+        uri: { $id: "#uri-reference", type: "string" },
+        directive: { $ref: "#uri-reference" },
+      },
+      properties: { link: { $ref: "#/definitions/directive" } },
+    };
+    const result = preflightSchemaRequest({ kind: "preflight", requestId: 79, primary: { fileName: "schema.json", schema }, dependencies: [], settings: strict });
+    expect(result.valid).toBe(true);
+    const invalid = validateSchemaRequest({ requestId: 80, value: { link: 42 }, primary: { fileName: "schema.json", schema }, dependencies: [], settings: strict });
+    expect(invalid.valid).toBe(false);
+  });
+});
+
 describe("strictness toggles", () => {
   it("enforces strictRequired only when enabled", () => {
     const schema = { $schema: "https://json-schema.org/draft/2020-12/schema", type: "object", properties: { present: { type: "string" } }, required: ["absent"] };
     const relaxed = preflightSchemaRequest({ kind: "preflight", requestId: 60, primary: { fileName: "schema.json", schema }, dependencies: [], settings: strict });
     expect(relaxed.valid).toBe(true);
+    expect(relaxed.notices).not.toContainEqual(expect.objectContaining({ ruleId: "schema/strict-relaxed" }));
     const enforced = preflightSchemaRequest({ kind: "preflight", requestId: 61, primary: { fileName: "schema.json", schema }, dependencies: [], settings: settingsWith({ strictRequired: true }) });
-    expect(enforced.valid).toBe(false);
-    expect(enforced.problems[0]?.message).toMatch(/required|absent/i);
+    expect(enforced.valid).toBe(true);
+    const notice = enforced.notices.find((item) => item.ruleId === "schema/strict-relaxed");
+    expect(notice?.message).toMatch(/required|absent/i);
   });
 
   it("reports only the first error when allErrors is disabled", () => {

@@ -1,3 +1,4 @@
+import { dialectForSchemaUri } from "./settings";
 import type { LocalSchemaFile, ReferenceIssue, ReferenceMode } from "./types";
 
 type JsonObject = Record<string, unknown>;
@@ -70,11 +71,36 @@ export function scanReferences(
   });
 }
 
+/**
+ * Legacy schemas (common in SchemaStore) stamp subschemas with pointer-style
+ * pseudo-`$id`s such as `#/properties/foo`. These are not valid `$id` values,
+ * and AJV resolves them to the same URI as the subschema's own JSON pointer
+ * location, producing "reference resolves to more than one schema" failures.
+ * They are dropped from the compilation copy: `$ref`s that target them still
+ * resolve through ordinary pointer resolution. Name-anchor ids (`#name`),
+ * which `$ref`s cannot reach via pointers, are kept untouched.
+ */
+function isPointerStyleFragmentId(id: string): boolean {
+  return id.startsWith("#/");
+}
+
+/**
+ * Some schemas embed a copy of a dialect meta-schema and stamp it with the
+ * meta URI as `$id` (MockServer does this with Draft 7). AJV already
+ * registers that URI, so the embedded copy collides ("reference ... resolves
+ * to more than one schema"). Dropping the `$id` keeps `$ref`s to the meta URI
+ * resolving to AJV's authoritative copy.
+ */
+function isMetaSchemaId(id: string): boolean {
+  return dialectForSchemaUri(id) !== undefined;
+}
+
 function rewriteReferences(value: unknown, lookup: ReadonlyMap<string, string>): unknown {
   if (Array.isArray(value)) return value.map((item) => rewriteReferences(item, lookup));
   if (!isObject(value)) return value;
   const clone: JsonObject = {};
   for (const [key, item] of Object.entries(value)) {
+    if (key === "$id" && typeof item === "string" && (isPointerStyleFragmentId(item) || isMetaSchemaId(item))) continue;
     if (key === "$ref" && typeof item === "string" && !item.startsWith("#")) {
       const [base, fragment] = item.split("#", 2);
       clone[key] = `${lookup.get(base ?? "") ?? base}${fragment === undefined ? "" : `#${fragment}`}`;

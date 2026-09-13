@@ -1,0 +1,147 @@
+[
+ {
+  "file": "beef-entity-v5-codegen.json",
+  "url": "https://json.schemastore.org/beef-entity-v5-codegen",
+  "note": "https draft-04 dialect URI"
+ },
+ {
+  "file": "Cargo_Make.json",
+  "url": "https://raw.githubusercontent.com/sagiegurari/cargo-make/master/src/assets/schema.json",
+  "note": "unknown x-taplo-info keyword"
+ },
+ {
+  "file": "Gemini_CLI_settings.json",
+  "url": "https://json.schemastore.org/gemini-settings",
+  "note": "unknown markdownDescription keyword"
+ },
+ {
+  "file": "CloudEvents_specification.json",
+  "url": "",
+  "note": "union types"
+ },
+ {
+  "file": "WebExtensions.json",
+  "url": "https://json.schemastore.org/webextension",
+  "note": "missing type for properties"
+ },
+ {
+  "file": "Symfony_Validation_Mapping.json",
+  "url": "",
+  "note": "allowMatchingProperties patternProperties"
+ },
+ {
+  "file": "sfdx-hardis_configuration.json",
+  "url": "",
+  "note": "pointer-style fragment $ids"
+ },
+ {
+  "file": "OSCAL_Profile.json",
+  "url": "",
+  "note": "name-anchor fragment $id"
+ },
+ {
+  "file": "Snapcraft.json",
+  "url": "https://json.schemastore.org/snapcraft",
+  "note": "unknown discriminator keyword (draft-07)"
+ },
+ {
+  "file": "jsconfig.json.json",
+  "url": "https://json.schemastore.org/jsconfig",
+  "note": "unknown allowTrailingCommas keyword"
+ },
+ {
+  "file": "Ameba.json",
+  "url": "",
+  "note": "missing type strictTypes"
+ },
+ {
+  "file": "estampo.toml.json",
+  "url": "",
+  "note": "union types in additionalProperties"
+ },
+ {
+  "file": "Ansible_Tasks_File.json",
+  "url": "",
+  "note": "union types at root"
+ },
+ {
+  "file": "Meltano_project_definition.json",
+  "url": "",
+  "note": "missing type unevaluatedProperties"
+ },
+ {
+  "file": "WireMock_stub_mapping.json",
+  "url": "",
+  "note": "unknown example keyword"
+ },
+ {
+  "file": "helmfile.json",
+  "url": "https://json.schemastore.org/helmfile",
+  "note": "missing type for required"
+ },
+ {
+  "file": "Yandex_Workflow_Language.json",
+  "url": "",
+  "note": "draft-04 http marker + missing type"
+ },
+ {
+  "file": "TSON.json",
+  "url": "",
+  "note": "unknown rules keyword"
+ },
+ {
+  "file": "ize.toml.json",
+  "url": "",
+  "note": "unknown deprecationMessage keyword"
+ },
+ {
+  "file": "Vogi.json",
+  "url": "",
+  "note": "unknown x-vogi-schema-version keyword"
+ },
+ {
+  "file": "hermes-model-catalog.json",
+  "url": "https://hermes-agent.nousresearch.com/docs/api/model-catalog.json",
+  "note": "plain data document, no $schema, no schema keywords"
+ },
+ {
+  "file": "Stella_configuration_file.json",
+  "url": "https://json.schemastore.org/Stella_configuration_file",
+  "note": "draft-06 dialect coverage"
+ },
+ {
+  "file": "Yarn_Config__.yarnrc.yml_.json",
+  "url": "https://json.schemastore.org/yarnrc",
+  "note": "draft-2019-09 URI with trailing #",
+  "expected": "loadable"
+ },
+ {
+  "file": "Symfony_Services_Configuration.json",
+  "url": "https://json.schemastore.org/symfony-services",
+  "note": "invalid double-escaped regex pattern",
+  "expected": "loadable"
+ },
+ {
+  "file": "Freifunk.de_Community_API.json",
+  "url": "https://json.schemastore.org/ffapi",
+  "note": "invalid regex escape",
+  "expected": "loadable"
+ },
+ {
+  "file": "MockServer_Expectations.json",
+  "url": "https://json.schemastore.org/mockserver",
+  "note": "embedded draft-07 meta $id collision + missing definition ref",
+  "expected": "loadable"
+ },
+ {
+  "file": ".pmbot.yml.json",
+  "url": "https://json.schemastore.org/pmbot",
+  "note": "string where a subschema is required; loads best-effort with meta warning"
+ },
+ {
+  "file": "GraphQL_Code_Generator.json",
+  "url": "https://json.schemastore.org/graphql-codegen",
+  "note": "TypeScript-style strings in type keyword (genuinely invalid)",
+  "expected": "invalid"
+ }
+]
