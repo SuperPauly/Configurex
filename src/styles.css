@@ -1008,6 +1008,13 @@ h1 {
 .schema-input-reveal > .button { align-self: flex-end; }
 .schema-url-input > div { display: flex; gap: 8px; }
 .schema-url-input input { min-height: 40px; padding: 0 10px; }
+.schema-url-autocomplete { flex: 1 1 auto; min-width: 0; position: relative; }
+.schema-url-autocomplete input { width: 100%; }
+.schema-url-suggestions { position: absolute; z-index: 40; top: calc(100% + 4px); right: 0; left: 0; max-height: 260px; margin: 0; padding: 4px; overflow-y: auto; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); box-shadow: 0 10px 28px rgba(0, 0, 0, .28); list-style: none; }
+.schema-url-suggestions li { display: grid; gap: 1px; padding: 7px 9px; border-radius: 6px; cursor: pointer; }
+.schema-url-suggestions li.is-highlighted { background: var(--surface-raised); }
+.schema-url-suggestions strong { overflow: hidden; font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+.schema-url-suggestions small { overflow: hidden; color: var(--muted); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
 .schema-hint { font-size: 0.85rem; opacity: 0.8; margin: 0.25rem 0 0; }
 .drop-hint { margin: 10px 0 0; color: var(--muted); font-size: .72rem; }
 .schema-feedback { display: flex; align-items: flex-start; gap: 7px; margin: 10px 0 0; padding: 9px 10px; border-radius: 8px; color: var(--danger); background: var(--danger-bg); font-size: .76rem; }

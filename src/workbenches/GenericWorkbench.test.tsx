@@ -308,7 +308,7 @@ describe("GenericWorkbench", () => {
     expect(editor.closest(".editor-shell")).not.toHaveClass("is-expanded");
   });
 
-  it("populates schema URL input with SchemaStore catalog datalist", async () => {
+  it("populates schema URL input with SchemaStore catalog suggestions", async () => {
     const catalogResponse = {
       schemas: [
         { name: "Renovate", url: "https://docs.renovatebot.com/renovate-schema.json" },
@@ -325,17 +325,56 @@ describe("GenericWorkbench", () => {
     await userEvent.click(screen.getByRole("button", { name: /fetch url/i }));
 
     await screen.findByText(/1 schemas/);
-    
-    const input = screen.getByLabelText(/https schema url/i);
-    expect(input).toHaveAttribute("list", "schema-url-options");
 
-    const datalist = document.querySelector('#schema-url-options option[value="https://docs.renovatebot.com/renovate-schema.json"]');
-    expect(datalist).toBeInTheDocument();
+    const input = screen.getByLabelText(/https schema url/i);
+    expect(input).toHaveAttribute("role", "combobox");
+
+    await userEvent.type(input, "renovate");
+    const option = await screen.findByRole("option", { name: /renovate/i });
+    expect(option).toHaveTextContent("https://docs.renovatebot.com/renovate-schema.json");
+
+    await userEvent.click(option);
+    expect(input).toHaveValue("https://docs.renovatebot.com/renovate-schema.json");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
 
     const link = screen.getByRole("link", { name: /schemastore catalog/i });
     expect(link).toHaveAttribute("href", "https://www.schemastore.org/#schemalist");
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noreferrer");
+  });
+
+  it("navigates schema URL suggestions with the keyboard", async () => {
+    const catalogResponse = {
+      schemas: [
+        { name: "Alpha", url: "https://example.test/alpha.json" },
+        { name: "Alpine", url: "https://example.test/alpine.json" },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).includes("schemastore.org")) {
+        return new Response(JSON.stringify(catalogResponse), { status: 200 });
+      }
+      return new Response(JSON.stringify({ type: "object" }), { status: 200 });
+    }));
+
+    render(<GenericWorkbench engine={engine} manifest={manifest} />);
+    await userEvent.click(screen.getByRole("button", { name: /fetch url/i }));
+    await screen.findByText(/2 schemas/);
+
+    const input = screen.getByLabelText(/https schema url/i);
+    await userEvent.type(input, "alp");
+    const listbox = await screen.findByRole("listbox");
+    expect(within(listbox).getAllByRole("option")).toHaveLength(2);
+
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+    expect(input).toHaveValue("https://example.test/alpine.json");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+
+    await userEvent.clear(input);
+    await userEvent.type(input, "alp");
+    expect(await screen.findByRole("listbox")).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 });
 
