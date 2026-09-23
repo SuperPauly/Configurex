@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-22T18:25:18.747Z",
+  "generatedAt": "2026-09-23T00:50:26.980Z",
   "programs": {
     "codex": {
       "name": "Codex CLI",
@@ -11,15 +11,35 @@
           "label": "Current stable",
           "channel": "stable",
           "version": "Current stable",
-          "sha256": "895287b978baf5cb6dec9c2e91b71d067ed0ec8b67fd88e6be96ac2ffd3f027e",
+          "sha256": "93333acd36541f1d49681d0546776ef15c4ee0908b80d230e7564a3d398391d2",
           "sourceUrl": "https://learn.chatgpt.com/docs/config-schema.json",
           "assetPath": "schemas/codex/stable-current/config-schema.json",
-          "syncedAt": "2026-09-18T00:52:00.597Z"
+          "syncedAt": "2026-09-23T00:50:26.980Z"
+        },
+        {
+          "id": "rust-v0.157.0-alpha.10",
+          "label": "v0.157.0-alpha.10",
+          "channel": "alpha",
+          "version": "v0.157.0-alpha.10",
+          "sha256": "48269e3685f9e743732f4d8e88d5b3359d0f49e6df8a3d7152362b7dec2aecb4",
+          "sourceUrl": "https://github.com/openai/codex/releases/download/rust-v0.157.0-alpha.10/config-schema.json",
+          "assetPath": "schemas/codex/releases/rust-v0.157.0-alpha.10/config-schema.json",
+          "syncedAt": "2026-09-23T00:50:26.980Z"
+        },
+        {
+          "id": "rust-v0.156.0",
+          "label": "v0.156.0",
+          "channel": "archive",
+          "version": "v0.156.0",
+          "sha256": "93333acd36541f1d49681d0546776ef15c4ee0908b80d230e7564a3d398391d2",
+          "sourceUrl": "https://github.com/openai/codex/releases/download/rust-v0.156.0/config-schema.json",
+          "assetPath": "schemas/codex/releases/rust-v0.156.0/config-schema.json",
+          "syncedAt": "2026-09-23T00:50:26.980Z"
         },
         {
           "id": "rust-v0.157.0-alpha.9",
           "label": "v0.157.0-alpha.9",
-          "channel": "alpha",
+          "channel": "archive",
           "version": "v0.157.0-alpha.9",
           "sha256": "48269e3685f9e743732f4d8e88d5b3359d0f49e6df8a3d7152362b7dec2aecb4",
           "sourceUrl": "https://github.com/openai/codex/releases/download/rust-v0.157.0-alpha.9/config-schema.json",
@@ -957,6 +977,16 @@
           "syncedAt": "2026-08-30T14:57:10.022Z"
         },
         {
+          "id": "rust-v0.150.1",
+          "label": "v0.150.1",
+          "channel": "archive",
+          "version": "v0.150.1",
+          "sha256": "c90e1f60114dc6f0a5d0601c1a4bae59206ed65590d231693805f63dcda86092",
+          "sourceUrl": "https://github.com/openai/codex/releases/download/rust-v0.150.1/config-schema.json",
+          "assetPath": "schemas/codex/releases/rust-v0.150.1/config-schema.json",
+          "syncedAt": "2026-08-27T02:35:59.712Z"
+        },
+        {
           "id": "rust-v0.151.0-alpha.6",
           "label": "v0.151.0-alpha.6",
           "channel": "archive",
@@ -975,16 +1005,6 @@
           "sourceUrl": "https://github.com/openai/codex/releases/download/rust-v0.151.0-alpha.5/config-schema.json",
           "assetPath": "schemas/codex/releases/rust-v0.151.0-alpha.5/config-schema.json",
           "syncedAt": "2026-08-30T14:57:10.022Z"
-        },
-        {
-          "id": "rust-v0.150.1",
-          "label": "v0.150.1",
-          "channel": "archive",
-          "version": "v0.150.1",
-          "sha256": "c90e1f60114dc6f0a5d0601c1a4bae59206ed65590d231693805f63dcda86092",
-          "sourceUrl": "https://github.com/openai/codex/releases/download/rust-v0.150.1/config-schema.json",
-          "assetPath": "schemas/codex/releases/rust-v0.150.1/config-schema.json",
-          "syncedAt": "2026-08-27T02:35:59.712Z"
         },
         {
           "id": "rust-v0.150.0-alpha.12.2",
@@ -2590,8 +2610,8 @@
           "version": "main",
           "sourceUrl": "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/schemas/settings.schema.json",
           "assetPath": "schemas/gemini/main/settings.schema.json",
-          "sha256": "8bc78d59eb87aa79893a0b5928720d571397505b94e2d983f988c5932afc0016",
-          "syncedAt": "2026-08-04T20:37:47.144Z"
+          "sha256": "1429b5aa1e1837577d2cdda2b8a7b5498b5de98ba415d73a6334288be148649f",
+          "syncedAt": "2026-09-23T00:50:26.980Z"
         }
       ]
     },
