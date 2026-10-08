@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-08T06:36:53.910Z",
+  "generatedAt": "2026-10-08T18:25:15.506Z",
   "programs": {
     "codex": {
       "name": "Codex CLI",
@@ -17,9 +17,19 @@
           "syncedAt": "2026-10-08T00:57:44.597Z"
         },
         {
+          "id": "rust-v0.162.0-alpha.17.2",
+          "label": "v0.162.0-alpha.17.2",
+          "channel": "alpha",
+          "version": "v0.162.0-alpha.17.2",
+          "sha256": "8d2adc32b61493f715ded062aea45b28f48d1e3deabbbee4d32debbf1703c077",
+          "sourceUrl": "https://github.com/openai/codex/releases/download/rust-v0.162.0-alpha.17.2/config-schema.json",
+          "assetPath": "schemas/codex/releases/rust-v0.162.0-alpha.17.2/config-schema.json",
+          "syncedAt": "2026-10-08T18:25:15.506Z"
+        },
+        {
           "id": "rust-v0.162.0-alpha.18.1",
           "label": "v0.162.0-alpha.18.1",
-          "channel": "alpha",
+          "channel": "archive",
           "version": "v0.162.0-alpha.18.1",
           "sha256": "fdcf2b956ceb0cea03b3994946f0fea088aef894f8484084eb77f8051749add8",
           "sourceUrl": "https://github.com/openai/codex/releases/download/rust-v0.162.0-alpha.18.1/config-schema.json",
@@ -997,16 +1007,6 @@
           "syncedAt": "2026-09-22T00:52:13.162Z"
         },
         {
-          "id": "rust-v0.156.0-alpha.17",
-          "label": "v0.156.0-alpha.17",
-          "channel": "archive",
-          "version": "v0.156.0-alpha.17",
-          "sha256": "6b132493fba8e41fd4c869a9714b7ad741aceae63ebdb2f62a2d8413949a038e",
-          "sourceUrl": "https://github.com/openai/codex/releases/download/rust-v0.156.0-alpha.17/config-schema.json",
-          "assetPath": "schemas/codex/releases/rust-v0.156.0-alpha.17/config-schema.json",
-          "syncedAt": "2026-09-22T00:52:13.162Z"
-        },
-        {
           "id": "rust-v0.157.0-alpha.1",
           "label": "v0.157.0-alpha.1",
           "channel": "archive",
@@ -1015,6 +1015,16 @@
           "sourceUrl": "https://github.com/openai/codex/releases/download/rust-v0.157.0-alpha.1/config-schema.json",
           "assetPath": "schemas/codex/releases/rust-v0.157.0-alpha.1/config-schema.json",
           "syncedAt": "2026-09-21T18:23:22.469Z"
+        },
+        {
+          "id": "rust-v0.156.0-alpha.17",
+          "label": "v0.156.0-alpha.17",
+          "channel": "archive",
+          "version": "v0.156.0-alpha.17",
+          "sha256": "6b132493fba8e41fd4c869a9714b7ad741aceae63ebdb2f62a2d8413949a038e",
+          "sourceUrl": "https://github.com/openai/codex/releases/download/rust-v0.156.0-alpha.17/config-schema.json",
+          "assetPath": "schemas/codex/releases/rust-v0.156.0-alpha.17/config-schema.json",
+          "syncedAt": "2026-09-22T00:52:13.162Z"
         },
         {
           "id": "rust-v0.156.0-alpha.16",
