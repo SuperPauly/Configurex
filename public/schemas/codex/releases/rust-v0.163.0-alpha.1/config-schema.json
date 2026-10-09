@@ -815,6 +815,9 @@
             "code_mode_prewarm": {
               "type": "boolean"
             },
+            "code_mode_tool_description_first": {
+              "type": "boolean"
+            },
             "code_mode_tool_search": {
               "type": "boolean"
             },
@@ -1278,6 +1281,9 @@
           "type": "boolean"
         },
         "include_environment_context": {
+          "type": "boolean"
+        },
+        "include_environment_context_time": {
           "type": "boolean"
         },
         "include_permissions_instructions": {
@@ -3273,6 +3279,10 @@
           "description": "Tracks whether the user has acknowledged the full access warning prompt.",
           "type": "boolean"
         },
+        "hide_gov_cloud_guidance": {
+          "description": "Tracks whether the user has acknowledged the AWS GovCloud guidance.",
+          "type": "boolean"
+        },
         "hide_gpt-5.1-codex-max_migration_prompt": {
           "description": "Tracks whether the user has seen the gpt-5.1-codex-max migration prompt",
           "type": "boolean"
@@ -3616,7 +3626,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {
-          "default": true,
+          "description": "Explicit activation override. Omission inherits the installed-plugin default.",
           "type": "boolean"
         },
         "mcp_servers": {
@@ -3666,6 +3676,34 @@
           },
           "description": "Per-tool policy settings keyed by tool name.",
           "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "PluginsConfigToml": {
+      "additionalProperties": {
+        "$ref": "#/definitions/PluginConfig"
+      },
+      "description": "Plugin activation and capability settings loaded from configuration layers.",
+      "properties": {
+        "_default": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/PluginsDefaultConfig"
+            }
+          ],
+          "description": "Defaults for installed plugin activation. Omission preserves source enablement. Explicit plugin enablement settings override this default, but cannot enable an installation disabled by its source."
+        }
+      },
+      "type": "object"
+    },
+    "PluginsDefaultConfig": {
+      "additionalProperties": false,
+      "description": "Default activation settings for installed plugins.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "type": "boolean"
         }
       },
       "type": "object"
@@ -6738,6 +6776,10 @@
     "WindowsToml": {
       "additionalProperties": false,
       "properties": {
+        "allow_mxc": {
+          "description": "False blocks both explicit MXC configuration and automatic selection.",
+          "type": "boolean"
+        },
         "sandbox": {
           "$ref": "#/definitions/WindowsSandboxModeToml"
         }
@@ -7029,6 +7071,9 @@
           "type": "boolean"
         },
         "code_mode_prewarm": {
+          "type": "boolean"
+        },
+        "code_mode_tool_description_first": {
           "type": "boolean"
         },
         "code_mode_tool_search": {
@@ -7575,6 +7620,10 @@
       "description": "Whether to inject the `<environment_context>` user block.",
       "type": "boolean"
     },
+    "include_environment_context_time": {
+      "description": "Whether environment context includes the current date and timezone.",
+      "type": "boolean"
+    },
     "include_permissions_instructions": {
       "description": "Whether to inject the `<permissions instructions>` developer block.",
       "type": "boolean"
@@ -7781,12 +7830,13 @@
       "$ref": "#/definitions/ReasoningEffort"
     },
     "plugins": {
-      "additionalProperties": {
-        "$ref": "#/definitions/PluginConfig"
-      },
+      "allOf": [
+        {
+          "$ref": "#/definitions/PluginsConfigToml"
+        }
+      ],
       "default": {},
-      "description": "User-level plugin config entries keyed by plugin name.",
-      "type": "object"
+      "description": "Default and per-plugin settings keyed by exact `<plugin>@<marketplace>` IDs."
     },
     "profile": {
       "description": "Profile to use from the `profiles` map.",
@@ -7910,7 +7960,7 @@
       "type": "boolean"
     },
     "thread_unload_delay_secs": {
-      "description": "Seconds a thread must have no subscribers and no activity before app-server unloads it. Defaults to 60; zero unloads immediately. Changes require a server restart.",
+      "description": "Seconds a thread must have no subscribers and no activity before app-server unloads it. Defaults to 1800 (30 minutes); zero unloads immediately. Changes require a server restart.",
       "format": "uint64",
       "minimum": 0.0,
       "type": "integer"
